@@ -1,0 +1,25 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -c --arg sha \"$(git rev-parse --short HEAD 2>/dev/null)\" '{t:(now|todate), ev:.hook_event_name, session:.session_id, tool:.tool_name, sha:$sha}' >> .harness/events.jsonl"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -c '{t:(now|todate), ev:\"stop\", session:.session_id}' >> .harness/events.jsonl"
+          }
+        ]
+      }
+    ]
+  }
+}

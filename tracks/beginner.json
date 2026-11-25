@@ -1,0 +1,9 @@
+{
+  "level": "beginner",
+  "profile": "core",
+  "primary_tabs": ["Map", "Learn"],
+  "hidden_tabs": ["Trail", "Spend", "Secure"],
+  "gates": ["language", "map-update"],
+  "floorplan_audience": "everyone",
+  "agent_mode": "tutor"
+}

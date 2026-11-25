@@ -1,0 +1,9 @@
+{
+  "level": "advanced",
+  "profile": "security",
+  "primary_tabs": ["Trail", "Secure"],
+  "hidden_tabs": [],
+  "gates": ["language", "map-update", "plan-approval", "budget", "artex-audit", "replay-review"],
+  "floorplan_audience": "developers",
+  "agent_mode": "autonomous"
+}

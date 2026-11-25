@@ -1,0 +1,124 @@
+{
+  "$schema": "harness@1",
+  "budgets": {
+    "alert_at": [
+      0.8,
+      1
+    ],
+    "per_feature_usd": 2
+  },
+  "level": "beginner",
+  "listen": "127.0.0.1:4400",
+  "profile": "core",
+  "project": {
+    "app_ports": [
+      8080
+    ],
+    "root": "."
+  },
+  "rules": [
+    "rules/go.md",
+    "rules/web.md",
+    "rules/api-design.md",
+    "rules/architecture.md"
+  ],
+  "tools": [
+    {
+      "health": "http://127.0.0.1:4401/",
+      "id": "learn",
+      "managed": false,
+      "note": "Desktop app (web mode NEEDS VERIFICATION). Launch LearnHarness yourself; the tab iframes :3000.",
+      "profile": "core",
+      "tab": "Learn"
+    },
+    {
+      "id": "map",
+      "managed": false,
+      "port_from": {
+        "file": "floorplan/.cache/server.log",
+        "regex": "Floorplan: (http://\\S+)"
+      },
+      "profile": "core",
+      "tab": "Map"
+    },
+    {
+      "id": "review",
+      "managed": false,
+      "port_from": {
+        "command": [
+          "plannotator",
+          "inbox",
+          "status",
+          "--json"
+        ],
+        "json_path": "url"
+      },
+      "profile": "core",
+      "sessions_from": [
+        "plannotator",
+        "sessions",
+        "--json"
+      ],
+      "tab": "Review"
+    },
+    {
+      "command": [
+        "agent-trail"
+      ],
+      "env": {
+        "CLAUDE_PROJECTS_DIR": "${HOME}/.claude/projects"
+      },
+      "health": "http://127.0.0.1:4402/",
+      "id": "trail",
+      "profile": "observe",
+      "tab": "Trail",
+      "version": "@camtrik/agent-trail@\u003cpin\u003e"
+    },
+    {
+      "command": [
+        "./start.sh"
+      ],
+      "cwd": "${HARNESS_TOOLS}/tokentelemetry",
+      "env": {
+        "TT_ANONYMOUS_STATS": "0"
+      },
+      "health": "http://127.0.0.1:4403/",
+      "id": "spend",
+      "note": "telemetry-off key name NEEDS VERIFICATION; on by default upstream",
+      "profile": "observe",
+      "tab": "Spend"
+    },
+    {
+      "command": [
+        "docker",
+        "compose",
+        "up"
+      ],
+      "cwd": "${HARNESS_TOOLS}/ARTEX",
+      "depends_on": [
+        "docker"
+      ],
+      "health": "http://127.0.0.1:4404/",
+      "id": "secure",
+      "profile": "security",
+      "scope": {
+        "allow": [
+          "127.0.0.1",
+          "localhost"
+        ],
+        "deny": [
+          "*"
+        ],
+        "ports": [
+          8080
+        ]
+      },
+      "stop": [
+        "docker",
+        "compose",
+        "stop"
+      ],
+      "tab": "Secure"
+    }
+  ]
+}

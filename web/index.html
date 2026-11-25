@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DevEx Harness</title>
+<link rel="stylesheet" href="shell.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">DevEx <span>Harness</span></div>
+  <div class="topbar-controls">
+    <label class="level-label">Skill
+      <select id="level-select">
+        <option value="beginner">beginner</option>
+        <option value="intermediate">intermediate</option>
+        <option value="advanced">advanced</option>
+      </select>
+    </label>
+    <label class="level-label">Model
+      <select id="model-provider"></select>
+      <select id="model-select"></select>
+    </label>
+    <span id="profile" class="badge">…</span>
+    <span id="conn" class="dot" title="event stream"></span>
+  </div>
+</header>
+<nav id="tabs" class="tabs"></nav>
+<div class="workspace">
+  <aside class="sidebar">
+    <div class="sidebar-head">
+      <span>Explorer</span>
+      <button id="terminal-btn" class="btn secondary" title="Open a terminal at the project root">Terminal</button>
+    </div>
+    <div id="filetree" class="filetree"></div>
+    <div class="sidebar-head"><span>Cost &amp; Tokens</span></div>
+    <div id="tokens-panel" class="tokens"></div>
+  </aside>
+  <main id="main" class="main">
+    <section id="pane-overview" class="pane">
+      <div id="overview"></div>
+      <h2 class="pane-title">Timeline</h2>
+      <ul id="events" class="events"></ul>
+    </section>
+    <section id="pane-architect" class="pane" hidden></section>
+    <section id="pane-map" class="pane" hidden></section>
+    <section id="pane-graph" class="pane" hidden></section>
+    <section id="pane-build" class="pane" hidden></section>
+    <section id="pane-explorer" class="pane" hidden></section>
+    <section id="pane-settings" class="pane" hidden></section>
+  </main>
+</div>
+<script src="shell.js"></script>
+<script src="filetree.js"></script>
+<script src="visuals.js"></script>
+<script src="explorer.js"></script>
+</body>
+</html>

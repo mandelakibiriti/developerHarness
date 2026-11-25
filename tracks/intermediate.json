@@ -1,0 +1,9 @@
+{
+  "level": "intermediate",
+  "profile": "observe",
+  "primary_tabs": ["Review", "Spend"],
+  "hidden_tabs": ["Secure"],
+  "gates": ["language", "map-update", "plan-approval", "budget"],
+  "floorplan_audience": "developers",
+  "agent_mode": "review"
+}
