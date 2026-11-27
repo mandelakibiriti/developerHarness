@@ -4,26 +4,45 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
 
-// fakePlannotator writes a script that checks the flags the real CLI requires
-// together (--result-file needs --gate --json) and writes a decision.
+// TestMain lets this test binary stand in for the plannotator CLI, which works
+// on every platform (a shell-script fake would not run on Windows).
+func TestMain(m *testing.M) {
+	if os.Getenv("FAKE_PLANNOTATOR") == "1" {
+		os.Exit(fakePlannotatorMain(os.Args[1:]))
+	}
+	os.Exit(m.Run())
+}
+
+// fakePlannotatorMain checks the flags the real CLI requires together
+// (--result-file needs --gate --json) and writes a decision.
+func fakePlannotatorMain(args []string) int {
+	has, out := map[string]bool{}, ""
+	for i, a := range args {
+		has[a] = true
+		if a == "--result-file" && i+1 < len(args) {
+			out = args[i+1]
+		}
+	}
+	if !has["--gate"] || !has["--json"] || out == "" {
+		os.Stderr.WriteString("--result-file requires --gate --json\n")
+		return 2
+	}
+	if err := os.WriteFile(out, []byte(`{"decision":"approved","annotations":[]}`), 0o600); err != nil {
+		return 1
+	}
+	return 0
+}
+
 func fakePlannotator(t *testing.T) {
 	t.Helper()
-	dir := t.TempDir()
-	script := filepath.Join(dir, "plannotator")
-	os.WriteFile(script, []byte(`#!/bin/sh
-args="$*"
-case "$args" in *--gate*--json*--result-file*) ;; *) echo "--result-file requires --gate --json" >&2; exit 2;; esac
-while [ $# -gt 0 ]; do [ "$1" = "--result-file" ] && out="$2"; shift; done
-echo '{"decision":"approved","annotations":[]}' > "$out"
-`), 0o755)
+	t.Setenv("FAKE_PLANNOTATOR", "1")
 	orig := reviewCommand
-	reviewCommand = script
+	reviewCommand = os.Args[0]
 	t.Cleanup(func() { reviewCommand = orig })
 }
 
