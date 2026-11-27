@@ -102,6 +102,64 @@ func TestMissingRulePackFails(t *testing.T) {
 	}
 }
 
+func TestVersionCoversFullRuleBody(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, "rules/web.md", "### WEB-6 x\nRule: do x\nDetect: old detect\n")
+	cfg := &config.Config{Rules: []string{"rules/web.md"}}
+	c := &Compiler{Root: root, Cfg: cfg, Defaults: harnessctx.FS}
+	b1, err := c.Compile(Request{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The Rule: index is unchanged; only the Detect: body line changes.
+	write(t, root, "rules/web.md", "### WEB-6 x\nRule: do x\nDetect: NEW detect\n")
+	b2, err := c.Compile(Request{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b1.Version == b2.Version {
+		t.Fatal("version must change when a rule body line changes")
+	}
+}
+
+func TestVersionCoversSkillBody(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, ".claude/skills/s/SKILL.md", "---\nname: s\ndescription: d\n---\nbody v1\n")
+	c := &Compiler{Root: root, Cfg: &config.Config{}, Defaults: harnessctx.FS}
+	b1, err := c.Compile(Request{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Same frontmatter (name/desc), different body.
+	write(t, root, ".claude/skills/s/SKILL.md", "---\nname: s\ndescription: d\n---\nbody v2\n")
+	b2, err := c.Compile(Request{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b1.Version == b2.Version {
+		t.Fatal("version must change when a skill body changes")
+	}
+}
+
+func TestVersionCoversTrackContent(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, "tracks/beginner.json", `{"level":"beginner","profile":"core","gates":["a"],"agent_mode":"tutor","hidden_tabs":["x"]}`)
+	c := &Compiler{Root: root, Cfg: &config.Config{}, Defaults: harnessctx.FS}
+	b1, err := c.Compile(Request{Level: "beginner"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Gates (the only track field in the prompt) are unchanged; a hidden tab changes.
+	write(t, root, "tracks/beginner.json", `{"level":"beginner","profile":"core","gates":["a"],"agent_mode":"tutor","hidden_tabs":["y"]}`)
+	b2, err := c.Compile(Request{Level: "beginner"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b1.Version == b2.Version {
+		t.Fatal("version must change when a track field changes")
+	}
+}
+
 func write(t *testing.T, root, rel, body string) {
 	t.Helper()
 	p := filepath.Join(root, rel)
