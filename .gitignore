@@ -1,0 +1,7 @@
+.harness/
+floorplan/.cache/
+node_modules/
+graphify-out/
+floorplan/
+docs/
+dist/
