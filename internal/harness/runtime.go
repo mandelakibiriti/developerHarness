@@ -36,6 +36,7 @@ type ToolState struct {
 	Profile  string   `json:"profile"`
 	Managed  bool     `json:"managed"`
 	Upstream string   `json:"upstream,omitempty"`
+	Embed    string   `json:"embed,omitempty"` // themed proxy address to frame instead
 	Status   string   `json:"status"`
 	Healthy  bool     `json:"healthy"`
 	Error    string   `json:"error,omitempty"`
@@ -115,6 +116,9 @@ func (rt *Runtime) Start() error {
 	rt.tools = tools
 	for _, t := range tools {
 		rt.states[t.ID] = &ToolState{ID: t.ID, Tab: t.Tab, Profile: t.Profile, Managed: t.IsManaged(), Status: "stopped"}
+		if t.Theme == config.ThemeShadcn {
+			rt.states[t.ID].Embed = rt.embedURL(t.ID)
+		}
 	}
 	rt.mu.Unlock()
 
@@ -337,7 +341,7 @@ func (rt *Runtime) Handler() http.Handler {
 	mux.HandleFunc("/api/evals", rt.handleEvals)
 	mux.HandleFunc("/api/telemetry", rt.handleTelemetry)
 	_, port, _ := net.SplitHostPort(rt.cfg.Listen)
-	return proxy.Handler(rt.resolve, proxy.SameOrigin(port, mux))
+	return proxy.Handler(rt.resolve, proxy.SameOrigin(port, mux), rt.themeSnippet)
 }
 
 // resolve maps a subdomain (tool id) to its current upstream URL.

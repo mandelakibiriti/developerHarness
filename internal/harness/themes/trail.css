@@ -1,0 +1,27 @@
+/* Agent Trail restyled to the harness's shadcn (zinc) look. It already uses
+   shadcn's variable names; the rest removes its HUD decoration. Class names are
+   from @camtrik/agent-trail 0.1.7: recheck after an upgrade. */
+:root {
+  --background: hsl(0 0% 100%); --foreground: hsl(240 10% 3.9%);
+  --card: hsl(0 0% 100%); --card-foreground: hsl(240 10% 3.9%); --popover: hsl(0 0% 100%); --popover-foreground: hsl(240 10% 3.9%);
+  --primary: hsl(0 0% 100%); --secondary: hsl(240 4.8% 95.9%); --muted: hsl(240 4.8% 95.9%); --muted-foreground: hsl(240 3.8% 46.1%);
+  --accent: hsl(221.2 83.2% 53.3%); --accent-dim: hsl(221 60% 70%); --accent-ghost: hsl(214 95% 93%); --foreground-ghost: hsl(240 5% 70%);
+  --border: hsl(240 5.9% 90%); --border-strong: hsl(240 5% 82%); --input: hsl(240 5.9% 90%); --ring: hsl(221.2 83.2% 53.3%);
+  --sidebar: hsl(0 0% 100%); --sidebar-border: hsl(240 5.9% 90%); --radius: 0.5rem;
+}
+[data-theme="dark"] {
+  --background: hsl(240 10% 3.9%); --foreground: hsl(0 0% 98%);
+  --card: hsl(240 10% 5.5%); --card-foreground: hsl(0 0% 98%); --popover: hsl(240 10% 5.5%); --popover-foreground: hsl(0 0% 98%);
+  --primary: hsl(240 10% 3.9%); --secondary: hsl(240 3.7% 15.9%); --muted: hsl(240 3.7% 15.9%); --muted-foreground: hsl(240 5% 64.9%);
+  --accent: hsl(217.2 91.2% 59.8%); --accent-dim: hsl(217 50% 40%); --accent-ghost: hsl(217 40% 16%); --foreground-ghost: hsl(240 4% 35%);
+  --border: hsl(240 3.7% 15.9%); --border-strong: hsl(240 4% 24%); --input: hsl(240 3.7% 15.9%);
+  --sidebar: hsl(240 10% 3.9%); --sidebar-border: hsl(240 3.7% 15.9%);
+}
+/* no chamfers, glows, scanlines, wide capitals or corner brackets */
+*, *::before, *::after { clip-path: none !important; text-shadow: none !important; letter-spacing: normal !important; }
+* { text-transform: none !important; }
+body::before, body::after, .range-tab-corner, .rr-src-corner,
+span[class*="w-[9px]"][class*="h-[9px]"][class*="pointer-events-none"] { display: none !important; }
+.hud-glow { background-image: none !important; box-shadow: none !important; }
+body, button, input, [class*="font-mono"] { font-family: var(--font-inter), ui-sans-serif, system-ui, sans-serif !important; }
+button, input, select, [class*="border"][class*="bg-card"], [class*="hud-clip"], [class*="hud-pill"] { border-radius: var(--radius) !important; }

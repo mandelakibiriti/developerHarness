@@ -73,6 +73,7 @@ type Tool struct {
 	DependsOn    []string          `json:"depends_on,omitempty"`
 	Scope        *Scope            `json:"scope,omitempty"`
 	Note         string            `json:"note,omitempty"`
+	Theme        string            `json:"theme,omitempty"`         // "shadcn": restyle through the proxy
 	LoopbackOnly bool              `json:"loopback_only,omitempty"` // Node tools: pin listeners to 127.0.0.1
 	Timeout      string            `json:"timeout,omitempty"`
 }
@@ -158,6 +159,9 @@ func Load(path string) (*Config, error) {
 	return &c, nil
 }
 
+// ThemeShadcn is the only built-in tool theme.
+const ThemeShadcn = "shadcn"
+
 // Validate checks the schema, fills defaults, and rejects dependency cycles.
 func (c *Config) Validate() error {
 	if c.Schema != SchemaVersion {
@@ -200,6 +204,9 @@ func (c *Config) Validate() error {
 		}
 		if t.Health != "" && !strings.HasPrefix(t.Health, "http") {
 			return fmt.Errorf("tool %q health %q is not an http(s) URL", t.ID, t.Health)
+		}
+		if t.Theme != "" && t.Theme != ThemeShadcn {
+			return fmt.Errorf("tool %q has unknown theme %q (want %q)", t.ID, t.Theme, ThemeShadcn)
 		}
 	}
 	if len(c.Learn.Allow) == 0 {

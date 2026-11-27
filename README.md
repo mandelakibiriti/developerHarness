@@ -83,6 +83,12 @@ Set **Skill** in the top bar first: *beginner* means you write the code with hin
 | 6 | **Telemetry** | Calls, tokens, time, errors and cost by feature and model | what it cost |
 | 7 | **Evals** | Eval runs and their outcomes, proposed improvements, signals from daily use | whether the harness is improving |
 
+**Agent Trail's look.** With `"theme": "shadcn"` on the `trail` tool in `harness.json` (new
+projects have it), the Trail tab shows Agent Trail at `http://trail.localhost:<port>/`, where the
+harness adds its own colours and follows your light/dark choice. Agent Trail itself is not
+modified. Remove the line for its original look; a browser that cannot resolve `*.localhost`
+gets the original automatically. The stylesheet targets Agent Trail 0.1.7.
+
 **Overview** explains the flow and launches the tools found on your machine. Editor contents in
 Explorer are not saved to disk.
 
