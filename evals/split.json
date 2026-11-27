@@ -1,0 +1,9 @@
+{
+  "seed": 42,
+  "train": [
+    "go-api-versioning"
+  ],
+  "test": [
+    "ts-schema-validation"
+  ]
+}

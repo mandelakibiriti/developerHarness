@@ -45,3 +45,16 @@ func TestRunMissingCommand(t *testing.T) {
 		t.Fatal("expected an error message")
 	}
 }
+
+func TestRunScrubsEnv(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "sk-secret")
+	t.Setenv("HARNESS_RUN", "keepme")
+	p := &Problem{ID: "scrub", Process: []string{"sh", "-c", `printf '%s|%s' "$ANTHROPIC_API_KEY" "$HARNESS_RUN"`}}
+	r := p.Run()
+	if !r.Pass {
+		t.Fatalf("result: %+v", r)
+	}
+	if r.Output != "|keepme" {
+		t.Fatalf("output %q: a credential leaked or a benign variable was stripped", r.Output)
+	}
+}

@@ -7,11 +7,13 @@ package harness
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -35,6 +37,7 @@ func (rt *Runtime) effectiveLLM(provider, model string) llm.Config {
 		if p, ok := llm.Lookup(provider); ok {
 			eff.Provider = provider
 			eff.BaseURL = p.BaseURL
+			eff.APIKey = rt.keyFor(provider) // never send one provider's key to another
 		}
 	}
 	if model != "" {
@@ -66,14 +69,31 @@ func (rt *Runtime) chat(ctx context.Context, purpose, provider, model string, cr
 		return "", fmt.Errorf("compile context: %w", err)
 	}
 	eff := rt.effectiveLLM(provider, model)
+	eff.MaxTokens = maxTokensFor[purpose]
+	if eff.MaxTokens == 0 {
+		eff.MaxTokens = llm.DefaultMaxTokens
+	}
 	all := append([]llm.Message{{Role: "system", Content: b.System()}}, msgs...)
+	// Every model call leaves llm-request then llm-usage or llm-error in the
+	// timeline, so the project log shows what the LLM was asked to do and how it went.
+	rt.log.Append(events.Event{Ev: "llm-request", Tool: "llm", Data: map[string]any{
+		"purpose": purpose, "provider": eff.Provider, "model": eff.Model, "messages": len(msgs),
+		"prompt_chars": promptChars(all), "max_tokens": eff.MaxTokens, "preview": lastUserPreview(msgs),
+	}})
+	start := time.Now()
 	reply, usage, err := llm.New(eff).Chat(ctx, all)
+	ms := time.Since(start).Milliseconds()
 	if err != nil {
+		rt.log.Append(events.Event{Ev: "llm-error", Tool: "llm", Data: map[string]any{
+			"purpose": purpose, "provider": eff.Provider, "model": eff.Model, "duration_ms": ms,
+			"cancelled": errors.Is(ctx.Err(), context.Canceled), "error": err.Error(),
+		}})
 		return "", err
 	}
 	rt.log.Append(events.Event{Ev: "llm-usage", Tool: "llm", Data: map[string]any{
 		"purpose": purpose, "provider": eff.Provider, "model": eff.Model,
 		"prompt_tokens": usage.PromptTokens, "completion_tokens": usage.CompletionTokens,
+		"duration_ms": ms, "reply_chars": len(reply),
 		"harness_version": b.Version,
 	}})
 	if usd, ok := eff.CostUSD(usage); ok {
@@ -82,6 +102,35 @@ func (rt *Runtime) chat(ctx context.Context, purpose, provider, model string, cr
 		}})
 	}
 	return reply, nil
+}
+
+func promptChars(msgs []llm.Message) int {
+	n := 0
+	for _, m := range msgs {
+		n += len(m.Content)
+	}
+	return n
+}
+
+// lastUserPreview is a short, single-line hint of what was asked (not the full prompt).
+func lastUserPreview(msgs []llm.Message) string {
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Role == "user" {
+			s := strings.Join(strings.Fields(msgs[i].Content), " ")
+			if r := []rune(s); len(r) > 120 {
+				s = string(r[:120]) + "…"
+			}
+			return s
+		}
+	}
+	return ""
+}
+
+// maxTokensFor gives whole-document generations room; reasoning models spend
+// much of the budget thinking before they answer. Unlisted purposes use the default.
+var maxTokensFor = map[string]int{
+	"docs-generate":      16384,
+	"floorplan-generate": 16384,
 }
 
 // --- /api/llm/test ---
@@ -103,7 +152,7 @@ func (rt *Runtime) handleLLMTest(w http.ResponseWriter, r *http.Request) {
 	}
 	key := req.APIKey
 	if key == "" {
-		key = rt.currentLLM().APIKey
+		key = rt.keyFor(req.Provider)
 	}
 	if key == "" {
 		http.Error(w, "no API key", http.StatusBadRequest)
@@ -112,7 +161,7 @@ func (rt *Runtime) handleLLMTest(w http.ResponseWriter, r *http.Request) {
 	base := req.BaseURL
 	if base == "" {
 		if p, ok := llm.Lookup(req.Provider); ok {
-			base = p.BaseURL
+			base = rt.baseFor(p)
 		}
 	}
 	if base == "" {
@@ -128,7 +177,9 @@ func (rt *Runtime) handleLLMTest(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
 	defer cancel()
 	client := llm.New(llm.Config{Provider: req.Provider, Model: model, BaseURL: base, APIKey: key})
+	start := time.Now()
 	models, err := client.Test(ctx)
+	rt.logKeyCheck(req.Provider, len(models), time.Since(start), err)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": err.Error()})
@@ -152,6 +203,7 @@ func (rt *Runtime) handleLLMModels(w http.ResponseWriter, r *http.Request) {
 		if p, ok := llm.Lookup(provider); ok {
 			eff.Provider = provider
 			eff.BaseURL = p.BaseURL
+			eff.APIKey = rt.keyFor(provider)
 		}
 	}
 	if eff.APIKey == "" {
@@ -246,6 +298,10 @@ func (rt *Runtime) handleTerminal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cmd := exec.Command("open", "-a", "Terminal", rt.root)
+	if runtime.GOOS == "windows" {
+		cmd = exec.Command("cmd", "/c", "start", "cmd") // the new window inherits Dir
+		cmd.Dir = rt.root
+	}
 	if err := cmd.Run(); err != nil {
 		http.Error(w, "failed to open terminal: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -253,54 +309,6 @@ func (rt *Runtime) handleTerminal(w http.ResponseWriter, r *http.Request) {
 	rt.log.Append(events.Event{Ev: "terminal", Data: map[string]any{"dir": rt.root}})
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "opened", "dir": rt.root})
-}
-
-// --- /api/learn (LearnHarness desktop app) ---
-
-const learnAppPath = "/Applications/LearnHarness.app"
-
-func (rt *Runtime) handleLearn(w http.ResponseWriter, r *http.Request) {
-	switch r.Method {
-	case http.MethodGet:
-		_, err := os.Stat(learnAppPath)
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{"installed": err == nil, "path": learnAppPath})
-	case http.MethodPost:
-		if _, err := os.Stat(learnAppPath); err != nil {
-			http.Error(w, "LearnHarness not found at "+learnAppPath, http.StatusNotFound)
-			return
-		}
-		if err := exec.Command("open", learnAppPath).Run(); err != nil {
-			http.Error(w, "failed to launch: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-		rt.log.Append(events.Event{Ev: "learn-launch"})
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"status": "launched"})
-	default:
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-	}
-}
-
-// --- /api/tokens (token + cost visibility) ---
-
-func (rt *Runtime) handleTokens(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	spend := probe("http://127.0.0.1:13000/")
-	trail := probe("http://127.0.0.1:3030/api/v1/sessions/search")
-	var budgetStatus any
-	if rt.budget != nil {
-		budgetStatus = rt.budget.Status()
-	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{
-		"spend":  map[string]any{"available": spend.available, "url": "http://127.0.0.1:13000/", "status": spend.status},
-		"trail":  map[string]any{"available": trail.available, "url": "http://127.0.0.1:3030/", "status": trail.status},
-		"budget": budgetStatus,
-	})
 }
 
 type probeResult struct {

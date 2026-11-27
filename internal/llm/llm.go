@@ -64,7 +64,12 @@ type Config struct {
 	// a cost event so the budget sees this agent's spend; unset means tokens only.
 	USDPerMTokIn  float64 `json:"usd_per_mtok_in,omitempty"`
 	USDPerMTokOut float64 `json:"usd_per_mtok_out,omitempty"`
+	// MaxTokens caps the reply (reasoning tokens included on reasoning models).
+	// Per call, not saved; 0 means DefaultMaxTokens.
+	MaxTokens int `json:"-"`
 }
+
+const DefaultMaxTokens = 4096
 
 // Usage is the provider-reported token count for one call.
 type Usage struct {
@@ -94,7 +99,9 @@ type Client struct {
 
 // New builds a client for cfg.
 func New(cfg Config) *Client {
-	return &Client{cfg: cfg, http: &http.Client{Timeout: 5 * time.Minute}}
+	// Long generations on reasoning models can run for minutes; callers bound
+	// each call with their context (the UI's Stop button cancels it).
+	return &Client{cfg: cfg, http: &http.Client{Timeout: 15 * time.Minute}}
 }
 
 type chatRequest struct {
@@ -125,7 +132,11 @@ func (c *Client) Chat(ctx context.Context, messages []Message) (string, Usage, e
 		return "", Usage{}, fmt.Errorf("no API key set for provider %q", c.cfg.Provider)
 	}
 	base := strings.TrimRight(c.cfg.BaseURL, "/")
-	body := chatRequest{Model: c.cfg.Model, Messages: messages, MaxTokens: 4096, Temperature: 0.7}
+	maxTokens := c.cfg.MaxTokens
+	if maxTokens <= 0 {
+		maxTokens = DefaultMaxTokens
+	}
+	body := chatRequest{Model: c.cfg.Model, Messages: messages, MaxTokens: maxTokens, Temperature: 0.7}
 	b, err := json.Marshal(body)
 	if err != nil {
 		return "", Usage{}, err
@@ -160,14 +171,23 @@ func (c *Client) Chat(ctx context.Context, messages []Message) (string, Usage, e
 	if len(out.Choices) == 0 {
 		return "", Usage{}, fmt.Errorf("provider returned no choices")
 	}
-	content := out.Choices[0].Message.Content
+	content := stripThink(out.Choices[0].Message.Content)
 	if strings.TrimSpace(content) == "" {
 		if out.Choices[0].Message.ReasoningContent != "" {
-			return "", Usage{}, fmt.Errorf("model returned only reasoning_content and no answer; raise max_tokens or use a non-reasoning model")
+			return "", Usage{}, fmt.Errorf("model used its whole %d-token budget reasoning and returned no answer; try again or pick a non-reasoning model", maxTokens)
 		}
 		return "", Usage{}, fmt.Errorf("provider returned an empty message")
 	}
 	return content, out.Usage, nil
+}
+
+// stripThink drops an inline <think>…</think> block that some reasoning models
+// (e.g. DeepSeek-R1 on NIM) put in content instead of reasoning_content.
+func stripThink(s string) string {
+	if i := strings.LastIndex(s, "</think>"); i >= 0 {
+		return strings.TrimSpace(s[i+len("</think>"):])
+	}
+	return s
 }
 
 func truncate(b []byte, n int) string {

@@ -1,0 +1,7 @@
+{
+  "id": "go-api-versioning",
+  "prompt": "In practice-problems/go-api-versioning/, version every route that a client outside this repo calls under /v1/, leaving operational routes as they are. Do not edit the test. Explain each route you move.",
+  "problem": "go-api-versioning",
+  "mode": "build",
+  "domain": "go"
+}

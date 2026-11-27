@@ -7,14 +7,13 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/devex/harness/internal/config"
+	"github.com/devex/harness/internal/proc"
 )
 
 // Finding is the result of one check.
@@ -30,7 +29,7 @@ func Run(cfg *config.Config, profile string) []Finding {
 	var out []Finding
 	out = append(out,
 		checkRuntime("node", ">=22", 22, 0),
-		checkRuntime("python3", ">=3.10", 3, 10),
+		checkRuntime(proc.Python(), ">=3.10", 3, 10),
 	)
 
 	if config.ProfileRank[profile] >= config.ProfileRank["observe"] {
@@ -73,22 +72,6 @@ func Run(cfg *config.Config, profile string) []Finding {
 			f.Detail = name + " on PATH"
 		}
 		out = append(out, f)
-	}
-	// Floorplan (map tool) is a cloned repo with a serve.mjs entrypoint, not a
-	// PATH binary — check its source is present.
-	for _, t := range tools {
-		if t.ID == "map" {
-			serve := filepath.Join(config.ToolsDir(), "floorplan", "serve.mjs")
-			f := Finding{Check: "tool map (floorplan source)", OK: true}
-			if _, err := os.Stat(serve); err != nil {
-				f.OK = false
-				f.Detail = "floorplan not cloned to " + filepath.Join(config.ToolsDir(), "floorplan")
-				f.Fix = "run `harness init`"
-			} else {
-				f.Detail = "floorplan source present"
-			}
-			out = append(out, f)
-		}
 	}
 	return out
 }

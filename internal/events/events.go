@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -46,11 +47,7 @@ type Log struct {
 // Open creates (if needed) the log file, seeds the replay buffer from its
 // tail, and starts the tailer.
 func Open(path string) (*Log, error) {
-	dir := "."
-	if i := strings.LastIndexByte(path, '/'); i >= 0 {
-		dir = path[:i]
-	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, err
 	}
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
@@ -90,6 +87,9 @@ func (l *Log) Append(ev Event) error {
 	_, err = l.file.Write(b)
 	return err
 }
+
+// Path is the JSONL file this log appends to.
+func (l *Log) Path() string { return l.path }
 
 // Close stops the tailer and closes the file.
 func (l *Log) Close() error {

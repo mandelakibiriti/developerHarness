@@ -1,0 +1,7 @@
+{
+  "id": "ts-schema-validation",
+  "prompt": "In practice-problems/ts-schema-validation/, validate the input of parseUser against the User type so that `any` never crosses the boundary. No new dependencies. Do not edit the test.",
+  "problem": "ts-schema-validation",
+  "mode": "build",
+  "domain": "typescript"
+}

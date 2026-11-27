@@ -64,6 +64,10 @@ type Runtime struct {
 	root       string
 	configPath string
 	llmCfg     *llm.Config
+	llmKeys    map[string]string     // provider id -> API key
+	llmAvail   map[string]availEntry // provider id -> last key check
+	reviewMu   sync.Mutex
+	review     reviewState // latest Plannotator spec review
 	llmMu      sync.Mutex
 }
 
@@ -116,7 +120,8 @@ func (rt *Runtime) Start() error {
 
 	rt.budget = budget.New(rt.cfg.Budgets.PerFeatureUSD, rt.cfg.Budgets.AlertAt)
 	rt.startBudgetWatcher()
-	rt.llmCfg = rt.readLLMFromDisk()
+	rt.llmCfg, rt.llmKeys = rt.readLLMFromDisk()
+	rt.llmAvail = map[string]availEntry{}
 	for _, t := range tools {
 		if t.Scope != nil {
 			if desc, err := scope.Validate(t.Scope.Allow, t.Scope.Ports, t.Scope.Deny); err != nil {
@@ -131,6 +136,11 @@ func (rt *Runtime) Start() error {
 		rt.resolveUpstream(t)
 		if !t.IsManaged() {
 			rt.setStatus(t.ID, "not-managed")
+			continue
+		}
+		// something already answers (e.g. started by hand): use it rather than fail on a busy port
+		if t.Health != "" && t.Scope == nil && httpGetOK(t.Health) {
+			rt.setStatus(t.ID, "external")
 			continue
 		}
 		if err := rt.startTool(t); err != nil {
@@ -160,6 +170,12 @@ func (rt *Runtime) startTool(t config.Tool) error {
 	for _, d := range t.DependsOn {
 		if d == "docker" && !dockerRunning() {
 			return fmt.Errorf("docker is not running (required by %s)", t.ID)
+		}
+	}
+	if t.LoopbackOnly {
+		var err error
+		if t, err = rt.loopbackOnly(t); err != nil {
+			return fmt.Errorf("refusing to start %s without loopback restriction: %w", t.ID, err)
 		}
 	}
 	proc, err := supervisor.Start(t, filepath.Join(rt.home, "logs"))
@@ -308,14 +324,18 @@ func (rt *Runtime) Handler() http.Handler {
 	mux.HandleFunc("/api/floorplan", rt.handleFloorplan)
 	mux.HandleFunc("/api/floorplan/generate", rt.handleFloorplanGenerate)
 	mux.HandleFunc("/api/graph", rt.handleGraph)
+	mux.HandleFunc("/graph/view", rt.handleGraphView)
 	mux.HandleFunc("/api/graph/query", rt.handleGraphQuery)
 	mux.HandleFunc("/api/review", rt.handleReview)
 	mux.HandleFunc("/api/llm/test", rt.handleLLMTest)
 	mux.HandleFunc("/api/llm/models", rt.handleLLMModels)
+	mux.HandleFunc("/api/llm/available", rt.handleLLMAvailable)
 	mux.HandleFunc("/api/files", rt.handleFiles)
 	mux.HandleFunc("/api/terminal", rt.handleTerminal)
-	mux.HandleFunc("/api/learn", rt.handleLearn)
-	mux.HandleFunc("/api/tokens", rt.handleTokens)
+	mux.HandleFunc("/api/run", rt.handleRun)
+	mux.HandleFunc("/api/apps", rt.handleApps)
+	mux.HandleFunc("/api/evals", rt.handleEvals)
+	mux.HandleFunc("/api/telemetry", rt.handleTelemetry)
 	_, port, _ := net.SplitHostPort(rt.cfg.Listen)
 	return proxy.Handler(rt.resolve, proxy.SameOrigin(port, mux))
 }
@@ -333,6 +353,7 @@ func (rt *Runtime) resolve(sub string) (string, bool) {
 
 type statusResp struct {
 	Running bool           `json:"running"`
+	Project string         `json:"project"` // folder this instance tracks
 	Level   string         `json:"level"`
 	Profile string         `json:"profile"`
 	Listen  string         `json:"listen"`
@@ -354,7 +375,7 @@ type trackInfo struct {
 
 func (rt *Runtime) handleStatus(w http.ResponseWriter, r *http.Request) {
 	resp := statusResp{
-		Running: true,
+		Running: true, Project: rt.root,
 		Level:   rt.cfg.Level,
 		Profile: rt.profile,
 		Listen:  rt.cfg.Listen,

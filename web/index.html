@@ -1,58 +1,96 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>DevEx Harness</title>
-<link rel="stylesheet" href="shell.css">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DevEx Harness</title>
+  <link rel="stylesheet" href="shell.css">
+  <script>
+    // Set theme before first paint to avoid a flash: saved choice, else OS preference.
+    document.documentElement.dataset.theme = localStorage.getItem("theme") ||
+      (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+  </script>
 </head>
 <body>
-<header class="topbar">
-  <div class="brand">DevEx <span>Harness</span></div>
-  <div class="topbar-controls">
-    <label class="level-label">Skill
-      <select id="level-select">
-        <option value="beginner">beginner</option>
-        <option value="intermediate">intermediate</option>
-        <option value="advanced">advanced</option>
-      </select>
-    </label>
-    <label class="level-label">Model
-      <select id="model-provider"></select>
-      <select id="model-select"></select>
-    </label>
-    <span id="profile" class="badge">…</span>
-    <span id="conn" class="dot" title="event stream"></span>
-  </div>
-</header>
-<nav id="tabs" class="tabs"></nav>
-<div class="workspace">
-  <aside class="sidebar">
-    <div class="sidebar-head">
-      <span>Explorer</span>
-      <button id="terminal-btn" class="btn secondary" title="Open a terminal at the project root">Terminal</button>
+  <header class="topbar">
+    <div class="topbar-left">
+      <button id="sidebar-toggle" class="btn secondary icon" type="button" aria-label="Toggle sidebar" aria-controls="sidebar" aria-expanded="true" title="Toggle sidebar">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg>
+      </button>
+      <div class="brand">DevEx <span>Harness</span></div>
+      <span id="project" class="badge" hidden></span>
     </div>
-    <div id="filetree" class="filetree"></div>
-    <div class="sidebar-head"><span>Cost &amp; Tokens</span></div>
-    <div id="tokens-panel" class="tokens"></div>
-  </aside>
-  <main id="main" class="main">
-    <section id="pane-overview" class="pane">
-      <div id="overview"></div>
-      <h2 class="pane-title">Timeline</h2>
-      <ul id="events" class="events"></ul>
-    </section>
-    <section id="pane-architect" class="pane" hidden></section>
-    <section id="pane-map" class="pane" hidden></section>
-    <section id="pane-graph" class="pane" hidden></section>
-    <section id="pane-build" class="pane" hidden></section>
-    <section id="pane-explorer" class="pane" hidden></section>
-    <section id="pane-settings" class="pane" hidden></section>
-  </main>
-</div>
-<script src="shell.js"></script>
-<script src="filetree.js"></script>
-<script src="visuals.js"></script>
-<script src="explorer.js"></script>
+    <div class="topbar-controls">
+      <label class="level-label">Skill
+        <select id="level-select">
+          <option value="beginner">beginner</option>
+          <option value="intermediate">intermediate</option>
+          <option value="advanced">advanced</option>
+        </select>
+      </label>
+      <label class="level-label">Model
+        <select id="model-select" aria-label="Active model"></select>
+      </label>
+      <span id="profile" class="badge">…</span>
+      <span id="conn" class="dot" title="event stream"></span>
+      <button id="theme-toggle" class="btn secondary icon" type="button" aria-label="Toggle light/dark theme" title="Toggle theme">
+        <svg class="i-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+        <svg class="i-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+      </button>
+    </div>
+  </header>
+  <nav id="tabs" class="tabs"></nav>
+  <div class="workspace">
+    <aside class="sidebar" id="sidebar">
+      <details class="side-section" data-key="explorer" open>
+        <summary class="sidebar-head">
+          <span>Explorer</span>
+          <button id="terminal-btn" class="btn secondary" type="button" title="Open a terminal at the project root">Terminal</button>
+        </summary>
+        <div id="filetree" class="filetree"></div>
+      </details>
+      <details class="side-section" data-key="tokens" open>
+        <summary class="sidebar-head"><span>Cost & Tokens</span></summary>
+        <div id="tokens-panel" class="tokens"></div>
+      </details>
+    </aside>
+    <main id="main" class="main">
+      <section id="pane-overview" class="pane">
+        <details class="ov-card ov-about" id="ov-about" open>
+          <summary><h2 class="ov-title">How the harness works</h2></summary>
+          <p>DevEx Harness is a dashboard that runs on your own machine. It helps you take an idea from a written spec to working code with an AI agent, while keeping you in charge and showing what the AI did.</p>
+          <ol class="ov-steps">
+            <li><strong>Connect a model</strong><span>Add a provider API key in Settings.</span></li>
+            <li><strong>Design</strong><span>Architect writes the spec to docs/. Map turns it into a blueprint with a build order.</span></li>
+            <li><strong>Trail</strong><span>Allows you to review the agent's sessions</span></li>
+            <li><strong>Check</strong><span>Review the spec in Plannotator. Telemetry and Trail show every AI call.</span></li>
+          </ol>
+          <p class="hint">The <strong>Skill</strong> selector sets how much the agent does for you: beginner means you write the code with hints, advanced lets it do more, behind gates (checks it must pass). Your files, keys and logs stay on this machine; what you send to the agent goes to the model provider you chose.</p>
+        </details>
+        <div id="overview"></div>
+        <section class="ov-card" aria-labelledby="apps-h">
+          <div class="ov-head">
+            <h2 class="ov-title" id="apps-h">Tools on your machine</h2>
+            <button id="apps-refresh" class="btn secondary" type="button">Rescan</button>
+          </div>
+          <div id="apps" class="apps"></div>
+        </section>
+      </section>
+      <section id="pane-telemetry" class="pane" hidden></section>
+      <section id="pane-architect" class="pane" hidden></section>
+      <section id="pane-map" class="pane" hidden></section>
+      <section id="pane-graph" class="pane" hidden></section>
+      <section id="pane-trail" class="pane" hidden></section>
+      <section id="pane-explorer" class="pane" hidden></section>
+      <section id="pane-settings" class="pane" hidden></section>
+      <section id="pane-evals" class="pane" hidden></section>
+    </main>
+  </div>
+  <script src="shell.js"></script>
+  <script src="filetree.js"></script>
+  <script src="explorer.js"></script>
+  <script src="telemetry.js"></script>
+  <script src="floorplan.js"></script>
+  <script src="evals.js"></script>
 </body>
 </html>

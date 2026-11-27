@@ -12,6 +12,8 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/devex/harness/internal/scrub"
 )
 
 type Problem struct {
@@ -95,6 +97,7 @@ func run(ctx context.Context, args []string, cwd string, timeout time.Duration) 
 	if cwd != "" {
 		cmd.Dir = cwd
 	}
+	cmd.Env = scrub.Environ() // the test runs agent code: no developer credentials
 	out, err := cmd.CombinedOutput()
 	return string(out), err
 }
