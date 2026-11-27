@@ -9,8 +9,10 @@
 //	        guardrails, and the skill index (names only: progressive disclosure).
 //	Suffix  per turn: the latest lessons for the request's domain.
 //
-// Version is a short hash of the whole bundle; it is stamped on every event the
-// call produces, so a score can be traced to the context that earned it.
+// Version is a short hash of the whole bundle — including the full text of the
+// rule packs, track, and skill bodies, not just the summaries in the prefix —
+// so a change to any consumed line changes the version, which is stamped on
+// every event the call produces.
 package compiler
 
 import (
@@ -47,6 +49,12 @@ type Bundle struct {
 	Suffix  string   `json:"suffix"`
 	Version string   `json:"version"`
 	Sources []string `json:"sources"` // inputs read, in order
+
+	// full holds the complete text of each source whose prefix carries only a
+	// summary (rule packs, the track, skill bodies). It is hashed into Version
+	// but never sent in the prompt, so editing any consumed line changes the
+	// version without bloating the prefix.
+	full []string
 }
 
 // System returns the full system prompt.
@@ -115,7 +123,7 @@ func (c *Compiler) Compile(req Request) (Bundle, error) {
 	if b.Suffix, err = c.lessons(&b, req.Domain); err != nil {
 		return Bundle{}, err
 	}
-	sum := sha256.Sum256([]byte(b.Prefix + "\x00" + b.Suffix))
+	sum := sha256.Sum256([]byte(b.Prefix + "\x00" + b.Suffix + "\x00" + strings.Join(b.full, "\x00")))
 	b.Version = hex.EncodeToString(sum[:])[:12]
 	return b, nil
 }
@@ -163,9 +171,10 @@ func (c *Compiler) projectFile(b *Bundle, rel string) (string, error) {
 }
 
 // rules indexes the configured rule packs: id, title and the Rule: line only.
-// The full pack (Prevents/Detect/Teach) stays on disk for rule-gate to read.
-// A configured pack that is missing is an error: a silently dropped rule is a
-// rule nobody enforces.
+// The full pack (Prevents/Detect/Teach) stays on disk for rule-gate to read,
+// but its complete text is still hashed into the version so a rule-body edit
+// produces a new version. A configured pack that is missing is an error: a
+// silently dropped rule is a rule nobody enforces.
 func (c *Compiler) rules(b *Bundle) (string, error) {
 	if c.Cfg == nil || len(c.Cfg.Rules) == 0 {
 		return "", nil
@@ -177,6 +186,7 @@ func (c *Compiler) rules(b *Bundle) (string, error) {
 			return "", fmt.Errorf("rule pack %s: %w", rel, err)
 		}
 		b.Sources = append(b.Sources, rel)
+		b.full = append(b.full, string(data))
 		var id string
 		for _, line := range strings.Split(string(data), "\n") {
 			switch {
@@ -207,7 +217,12 @@ func (c *Compiler) track(b *Bundle, level string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
 	b.Sources = append(b.Sources, rel)
+	b.full = append(b.full, string(data))
 	return fmt.Sprintf("## Track: %s\nAgent mode: %s. Gates required before a card is done: %s.",
 		t.Level, t.AgentMode, strings.Join(t.Gates, ", ")), nil
 }
@@ -230,7 +245,8 @@ func (c *Compiler) guardrails() string {
 }
 
 // skills lists each skill's name and description; the body is loaded only
-// when the agent decides to use it.
+// when the agent decides to use it, but its complete text is hashed into the
+// version so a skill-body edit produces a new version.
 func (c *Compiler) skills(b *Bundle) (string, error) {
 	paths, err := filepath.Glob(filepath.Join(c.Root, ".claude", "skills", "*", "SKILL.md"))
 	if err != nil {
@@ -249,6 +265,7 @@ func (c *Compiler) skills(b *Bundle) (string, error) {
 		}
 		rel, _ := filepath.Rel(c.Root, p)
 		b.Sources = append(b.Sources, rel)
+		b.full = append(b.full, string(data))
 		out = append(out, "- "+name+": "+desc)
 	}
 	if len(out) == 0 {
@@ -285,7 +302,7 @@ func (c *Compiler) lessons(b *Bundle, domain string) (string, error) {
 	if domain == "" {
 		domain = "general"
 	}
-	if strings.ContainsAny(domain, `/\.`) {
+	if strings.ContainsAny(domain, `/\\.`) {
 		return "", fmt.Errorf("invalid domain %q", domain)
 	}
 	rel := filepath.Join("context", "memory", "lessons", domain+".jsonl")

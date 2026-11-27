@@ -1,10 +1,11 @@
-# DevEx Learning Harness: design and plan
+# DevEx Learning Harness: design, plan and execute
 
 A local, single-web-view harness that brings six open-source tools together. You use it to start a new production project, or to understand an existing codebase, while learning full-stack best practices at your own level.
+| Token Monitoring | Codebase Graph| Codebase schematic |
+|:-------:|:-------:|:-------:|
+| ![alt text](imgs/image%20(1).png) | ![alt text](imgs/image%20(2).png) | ![alt text](imgs/image%20(3).png) |
 
 **Start with the [step-by-step guide](#getting-started).** Sections 1 onwards are the design and plan; where they differ from the guide, the guide describes what is built.
-
-> Status (2026-11-27): the launcher, web view, event log, budgets, tracks, context compiler, Code Mode, eval judge and improve loop are built. Claims not checked against the upstream code are marked **NEEDS VERIFICATION**.
 
 ---
 
@@ -204,7 +205,7 @@ tool: it runs only in the `security` profile after `harness scope --confirm`.
 The shell links each tab to its tool's distinctive views. Where the two disagree, TokenTelemetry is the cost of record.
 
 ## 3. Component diagram
-![alt text](image.png)
+![alt text](imgs/image.png)
 ```
                       Browser: http://harness.localhost:4400
  ┌────────────────────────────────────────────────────────────────────────────────┐
