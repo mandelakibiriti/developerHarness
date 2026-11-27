@@ -9,10 +9,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/devex/harness/internal/config"
+	"github.com/devex/harness/internal/proc"
 )
 
 // Process is one managed tool process.
@@ -33,7 +33,7 @@ func Start(tool config.Tool, logDir string) (*Process, error) {
 		cmd.Dir = tool.Cwd
 	}
 	cmd.Env = append(os.Environ(), flattenEnv(tool.Env)...)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	proc.Group(cmd)
 
 	if err := os.MkdirAll(logDir, 0o755); err != nil {
 		return nil, err
@@ -96,15 +96,15 @@ func (p *Process) Err() error {
 // Stop sends SIGTERM to the whole process group, waits up to grace, then SIGKILLs.
 func (p *Process) Stop(grace time.Duration) error {
 	pgid := p.cmd.Process.Pid
-	if err := syscall.Kill(-pgid, syscall.SIGTERM); err != nil {
-		_ = p.cmd.Process.Signal(syscall.SIGTERM)
+	if err := proc.Terminate(pgid); err != nil {
+		_ = p.cmd.Process.Signal(os.Interrupt)
 	}
 	select {
 	case <-p.done:
 		return nil
 	case <-time.After(grace):
 	}
-	_ = syscall.Kill(-pgid, syscall.SIGKILL)
+	_ = proc.Kill(pgid)
 	_ = p.cmd.Process.Kill()
 	<-p.done
 	return fmt.Errorf("%s did not exit within %s; killed", p.tool.ID, grace)

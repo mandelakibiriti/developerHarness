@@ -27,12 +27,21 @@ func (rt *Runtime) docsDir() string       { return filepath.Join(rt.root, "docs"
 func (rt *Runtime) floorplanDir() string  { return filepath.Join(rt.root, "floorplan") }
 func (rt *Runtime) graphFile() string     { return filepath.Join(rt.root, "graphify-out", "graph.json") }
 
-func (rt *Runtime) readLLMFromDisk() *llm.Config {
-	cfg := &llm.Config{}
+// readLLMFromDisk loads the active config and per-provider keys. A file from
+// before per-provider keys has only api_key; it becomes the active provider's key.
+func (rt *Runtime) readLLMFromDisk() (*llm.Config, map[string]string) {
+	f := llmFile{}
 	if b, err := os.ReadFile(rt.llmConfigPath()); err == nil {
-		_ = json.Unmarshal(b, cfg)
+		_ = json.Unmarshal(b, &f)
 	}
-	return cfg
+	if f.Keys == nil {
+		f.Keys = map[string]string{}
+	}
+	if f.APIKey != "" && f.Keys[f.Provider] == "" {
+		f.Keys[f.Provider] = f.APIKey
+	}
+	cfg := f.Config
+	return &cfg, f.Keys
 }
 
 func (rt *Runtime) currentLLM() *llm.Config {
@@ -52,6 +61,8 @@ type llmStatus struct {
 	Model     string         `json:"model"`
 	BaseURL   string         `json:"base_url"`
 	HasKey    bool           `json:"has_key"`
+	// Configured lists provider ids with a saved key (keys are never echoed).
+	Configured []string `json:"configured"`
 }
 
 func (rt *Runtime) handleLLM(w http.ResponseWriter, r *http.Request) {
@@ -60,11 +71,12 @@ func (rt *Runtime) handleLLM(w http.ResponseWriter, r *http.Request) {
 		cfg := rt.currentLLM()
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(llmStatus{
-			Providers: llm.Providers,
-			Provider:  cfg.Provider,
-			Model:     cfg.Model,
-			BaseURL:   cfg.BaseURL,
-			HasKey:    cfg.APIKey != "",
+			Providers:  llm.Providers,
+			Provider:   cfg.Provider,
+			Model:      cfg.Model,
+			BaseURL:    cfg.BaseURL,
+			HasKey:     cfg.APIKey != "",
+			Configured: rt.configuredProviders(),
 		})
 	case http.MethodPut:
 		var req struct {
@@ -88,24 +100,44 @@ func (rt *Runtime) handleLLM(w http.ResponseWriter, r *http.Request) {
 		base := req.BaseURL
 		if base == "" {
 			base = p.BaseURL
+			if cur := rt.currentLLM(); cur.Provider == req.Provider && cur.BaseURL != "" {
+				base = cur.BaseURL // keep a saved override when re-saving the same provider
+			}
 		}
 		model := req.Model
 		if model == "" && ok && len(p.Models) > 0 {
 			model = p.Models[0]
 		}
-		cfg := &llm.Config{Provider: req.Provider, Model: model, BaseURL: base, APIKey: req.APIKey,
+		// An empty api_key keeps the provider's saved key, so switching model never wipes it.
+		key := req.APIKey
+		if key == "" {
+			key = rt.keyFor(req.Provider)
+		}
+		cfg := &llm.Config{Provider: req.Provider, Model: model, BaseURL: base, APIKey: key,
 			USDPerMTokIn: req.USDPerMTokIn, USDPerMTokOut: req.USDPerMTokOut}
-		b, _ := json.MarshalIndent(cfg, "", "  ")
+		rt.llmMu.Lock()
+		keys := make(map[string]string, len(rt.llmKeys)+1)
+		for k, v := range rt.llmKeys {
+			keys[k] = v
+		}
+		rt.llmMu.Unlock()
+		if key != "" {
+			keys[req.Provider] = key
+		}
+		b, _ := json.MarshalIndent(llmFile{Config: *cfg, Keys: keys}, "", "  ")
 		if err := os.WriteFile(rt.llmConfigPath(), b, 0o600); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 		rt.llmMu.Lock()
 		rt.llmCfg = cfg
+		rt.llmKeys = keys
+		delete(rt.llmAvail, req.Provider) // re-check this provider on next /available
 		rt.llmMu.Unlock()
 		rt.log.Append(events.Event{Ev: "llm-configured", Data: map[string]any{"provider": cfg.Provider, "model": cfg.Model}})
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(llmStatus{Providers: llm.Providers, Provider: cfg.Provider, Model: cfg.Model, BaseURL: cfg.BaseURL, HasKey: cfg.APIKey != ""})
+		json.NewEncoder(w).Encode(llmStatus{Providers: llm.Providers, Provider: cfg.Provider, Model: cfg.Model, BaseURL: cfg.BaseURL,
+			HasKey: cfg.APIKey != "", Configured: rt.configuredProviders()})
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
@@ -132,8 +164,7 @@ func (rt *Runtime) handleChat(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad json", http.StatusBadRequest)
 		return
 	}
-	cfg := rt.currentLLM()
-	if cfg.APIKey == "" {
+	if rt.effectiveLLM(req.Provider, req.Model).APIKey == "" {
 		http.Error(w, "no API key configured — add one in Settings", http.StatusBadRequest)
 		return
 	}
@@ -163,6 +194,10 @@ type docEntry struct {
 
 func (rt *Runtime) handleDocs(w http.ResponseWriter, r *http.Request) {
 	name := r.URL.Query().Get("name")
+	if name != "" && (name != filepath.Base(name) || !strings.HasSuffix(name, ".md") || strings.HasPrefix(name, ".")) {
+		http.Error(w, "name must be a .md file in docs/", http.StatusBadRequest)
+		return
+	}
 	switch {
 	case r.Method == http.MethodGet && name == "":
 		entries, _ := os.ReadDir(rt.docsDir())
@@ -226,8 +261,7 @@ func (rt *Runtime) handleDocsGenerate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad json", http.StatusBadRequest)
 		return
 	}
-	cfg := rt.currentLLM()
-	if cfg.APIKey == "" {
+	if rt.effectiveLLM(req.Provider, req.Model).APIKey == "" {
 		http.Error(w, "no API key configured", http.StatusBadRequest)
 		return
 	}
@@ -369,8 +403,7 @@ func (rt *Runtime) handleFloorplanGenerate(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "bad json", http.StatusBadRequest)
 		return
 	}
-	cfg := rt.currentLLM()
-	if cfg.APIKey == "" {
+	if rt.effectiveLLM(req.Provider, req.Model).APIKey == "" {
 		http.Error(w, "no API key configured", http.StatusBadRequest)
 		return
 	}
@@ -446,28 +479,4 @@ func (rt *Runtime) handleGraphQuery(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"answer": string(out)})
-}
-
-// --- /api/review ---
-
-func (rt *Runtime) handleReview(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	if _, err := os.Stat(rt.docsDir()); err != nil {
-		http.Error(w, "no docs/ to review yet", http.StatusBadRequest)
-		return
-	}
-	resultFile := filepath.Join(rt.home, "review-result.json")
-	cmd := exec.Command("plannotator", "annotate", rt.docsDir()+"/", "--result-file", resultFile, "--json")
-	cmd.Stdout = os.Stderr // annotate prints a URL/session; keep it visible in logs
-	cmd.Stderr = os.Stderr
-	if err := cmd.Start(); err != nil {
-		http.Error(w, "failed to start plannotator: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-	rt.log.Append(events.Event{Ev: "review-started", Data: map[string]any{"result_file": resultFile, "target": rt.docsDir()}})
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "started", "result_file": resultFile, "note": "Complete the review in Plannotator; the result lands in the file above."})
 }

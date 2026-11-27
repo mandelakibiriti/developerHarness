@@ -3,6 +3,10 @@
   "skill": "api-design",
   "goal": "Every route a client outside this repo calls is versioned under /v1/.",
   "hint": "Check the router registrations. A route shared with mobile clients must start with /v1/ so you can change it without force-updating them.",
-  "cwd": ".",
-  "process": ["go", "test", "./..."]
+  "cwd": "practice-problems/go-api-versioning",
+  "process": [
+    "go",
+    "test",
+    "./..."
+  ]
 }

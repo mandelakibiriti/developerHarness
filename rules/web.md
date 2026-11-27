@@ -35,4 +35,5 @@ Teach:    Practice problem "move a blocking computation to a worker and measure 
 ### WEB-6  idempotent, typed client calls
 Rule:     Every network call from the client has an explicit type and an error path; retries are safe (idempotent) by design.
 Prevents: an untyped, unretried call that fails once and leaves the UI in a half-state.
+Detect:   A fetch with no response type or no error handling; a retried POST with no idempotency key.
 Teach:    LearnHarness goal "why a retried POST must be idempotent".

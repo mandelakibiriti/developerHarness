@@ -28,6 +28,11 @@ type Config struct {
 	Tools   []Tool   `json:"tools"`
 	Budgets Budgets  `json:"budgets"`
 	Rules   []string `json:"rules"`
+	// Learn is the improve loop's edit boundary (Hermit's "template"): which
+	// repo-relative files a Proposer may touch. See Learnable.
+	Learn Learn `json:"learn"`
+	// Improve tunes the improve loop's proposer (method, candidates, model).
+	Improve Improve `json:"improve"`
 }
 
 type Project struct {
@@ -38,6 +43,18 @@ type Project struct {
 type Budgets struct {
 	PerFeatureUSD float64   `json:"per_feature_usd"`
 	AlertAt       []float64 `json:"alert_at"`
+}
+
+// Improve configures the improve loop's improver role — distinct from the
+// executor (the developer's Claude Code) and the judge (deterministic Go in
+// internal/improve). Proposer names the improve method, resolved by
+// internal/improve.ResolveProposer.
+type Improve struct {
+	Proposer string `json:"proposer"`          // method name; default "claude"
+	K        int    `json:"k"`                 // candidates per round; default 3, range 1..50
+	Model    string `json:"model,omitempty"`   // optional model override for the proposer
+	Prompt   string `json:"prompt,omitempty"`  // optional prompt-template override
+	Timeout  string `json:"timeout,omitempty"` // proposer call deadline; default 5m
 }
 
 type Tool struct {
@@ -56,6 +73,7 @@ type Tool struct {
 	DependsOn    []string          `json:"depends_on,omitempty"`
 	Scope        *Scope            `json:"scope,omitempty"`
 	Note         string            `json:"note,omitempty"`
+	LoopbackOnly bool              `json:"loopback_only,omitempty"` // Node tools: pin listeners to 127.0.0.1
 	Timeout      string            `json:"timeout,omitempty"`
 }
 
@@ -183,6 +201,26 @@ func (c *Config) Validate() error {
 		if t.Health != "" && !strings.HasPrefix(t.Health, "http") {
 			return fmt.Errorf("tool %q health %q is not an http(s) URL", t.ID, t.Health)
 		}
+	}
+	if len(c.Learn.Allow) == 0 {
+		c.Learn.Allow = append([]string{}, defaultLearnAllow...)
+	}
+	for _, pat := range append(append([]string{}, c.Learn.Allow...), c.Learn.Deny...) {
+		if strings.TrimSpace(pat) == "" {
+			return fmt.Errorf("learn glob must not be empty")
+		}
+		if _, err := globToRegex(pat); err != nil {
+			return fmt.Errorf("learn glob %q: %w", pat, err)
+		}
+	}
+	if c.Improve.Proposer == "" {
+		c.Improve.Proposer = "claude"
+	}
+	if c.Improve.K == 0 {
+		c.Improve.K = 3
+	}
+	if c.Improve.K < 1 || c.Improve.K > 50 {
+		return fmt.Errorf("improve.k must be 1..50, got %d", c.Improve.K)
 	}
 	return checkDeps(c.Tools)
 }

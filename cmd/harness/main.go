@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -29,7 +30,9 @@ import (
 	"github.com/devex/harness/internal/harness"
 	"github.com/devex/harness/internal/mcp"
 	"github.com/devex/harness/internal/practice"
+	"github.com/devex/harness/internal/proc"
 	"github.com/devex/harness/internal/promote"
+	"github.com/devex/harness/internal/scaffold"
 	"github.com/devex/harness/internal/scope"
 	"github.com/devex/harness/internal/track"
 )
@@ -66,6 +69,10 @@ func main() {
 		cmdContext(os.Args[2:])
 	case "mcp":
 		cmdMCP(os.Args[2:])
+	case "improve":
+		cmdImprove(os.Args[2:])
+	case "projects":
+		cmdProjects()
 	default:
 		usage()
 		os.Exit(2)
@@ -76,7 +83,8 @@ func usage() {
 	fmt.Fprint(os.Stderr, `DevEx Harness — one web view over the teaching/review/mapping/cost/security tools.
 
 Usage:
-  harness init
+  harness init     [folder] [--port N]   (set up a project; run once per project)
+  harness projects                       (list initialised projects and which are running)
   harness up       [--profile core|observe|security] [--level beginner|intermediate|advanced] [--goal "text"] [--config path]
   harness down
   harness status
@@ -88,6 +96,14 @@ Usage:
   harness practice <problem.json>
   harness promote  [--apply]
   harness mcp      [--config path]   (stdio MCP server: Code Mode search/describe/execute)
+  harness improve  split [--seed N] [--test 0.3] [--force]
+  harness improve  check [--mode M] [--level L] [--skip-tests] [--json]
+  harness improve  propose [--base V] [--k N] [--json]
+  harness improve  apply --base V [--all | --cand ID]
+  harness improve  begin --task ID            (prints the run id; export it as HARNESS_RUN)
+  harness improve  end --run ID [--root dir] [--error reason]
+  harness improve  judge [--split train|test|all] [--json]
+  harness improve  report --base V --cand V [--split test] [--json]
   harness context  compile [--mode architect|build|explain] [--level L] [--domain D] [--out file] [--json]
 `)
 }
@@ -167,7 +183,7 @@ func cmdUp(args []string) {
 	if s := rt.Scope(); s != "" {
 		fmt.Printf("scope: %s\n", s)
 	}
-	fmt.Printf("open http://harness.localhost:4400  (shell, tabs, timeline)\n")
+	fmt.Printf("project %s\nopen http://%s\n", root, cfg.Listen)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	rt.Run(ctx)
@@ -202,7 +218,7 @@ func cmdDown() {
 		_ = os.Remove(pidPath)
 		return
 	}
-	_ = syscall.Kill(pid, syscall.SIGTERM)
+	_ = proc.Signal(pid)
 	for i := 0; i < 50; i++ {
 		// The harness removes its pid file as its final shutdown step, so its
 		// absence is authoritative (a zombie still passes kill(pid, 0)).
@@ -218,7 +234,7 @@ func cmdDown() {
 		time.Sleep(200 * time.Millisecond)
 	}
 	fmt.Println("still running; sending SIGKILL")
-	_ = syscall.Kill(pid, syscall.SIGKILL)
+	_ = proc.ForceKill(pid)
 	_ = os.Remove(pidPath)
 }
 
@@ -275,11 +291,31 @@ func runDoctor(cfg *config.Config, profile string) {
 	}
 }
 
+// cmdInit sets up a new project (no harness.json yet); inside the harness's own
+// repository, which has one, it installs the upstream tools as before.
 func cmdInit(args []string) {
-	if _, err := os.Stat("harness.json"); os.IsNotExist(err) {
-		fmt.Fprintln(os.Stderr, "error: no harness.json here. Run `harness init` inside a DevEx Harness project.")
-		os.Exit(1)
+	fs := flag.NewFlagSet("init", flag.ExitOnError)
+	port := fs.Int("port", 0, "port for this project's harness (default: first free from 4400)")
+	fs.Parse(args)
+	dir := "."
+	if fs.NArg() > 0 {
+		dir = fs.Arg(0)
+		fs.Parse(fs.Args()[1:]) // allow flags after the folder
 	}
+	if _, err := os.Stat(filepath.Join(dir, "harness.json")); os.IsNotExist(err) {
+		res, err := scaffold.Init(dir, *port)
+		fatal(err)
+		fmt.Printf("initialised %s: %d files written\n", res.Dir, len(res.Written))
+		for _, k := range res.Kept {
+			fmt.Printf("  kept your existing %s\n", k)
+		}
+		if slices.Contains(res.Kept, ".claude/settings.json") {
+			fmt.Println("  note: add the harness hooks to it for live agent activity")
+		}
+		fmt.Printf("next: cd %s && harness up    (http://127.0.0.1:%d)\n", res.Dir, res.Port)
+		return
+	}
+	fatal(os.Chdir(dir))
 	script := filepath.Join("scripts", "install-tools.sh")
 	if _, err := os.Stat(script); err == nil {
 		fmt.Println("installing tools (scripts/install-tools.sh)…")
@@ -296,6 +332,25 @@ func cmdInit(args []string) {
 	cfg, err := config.Load("harness.json")
 	fatal(err)
 	runDoctor(cfg, cfg.Profile)
+}
+
+func cmdProjects() {
+	list, err := scaffold.Projects()
+	fatal(err)
+	if len(list) == 0 {
+		fmt.Println("no projects yet: run `harness init` inside one")
+		return
+	}
+	for _, p := range list {
+		state := "stopped"
+		b, err := os.ReadFile(filepath.Join(p.Path, ".harness", "harness.pid"))
+		if err == nil {
+			if pid, e := strconv.Atoi(strings.TrimSpace(string(b))); e == nil && processAlive(pid) {
+				state = "running"
+			}
+		}
+		fmt.Printf("%-8s http://127.0.0.1:%d  %s\n", state, p.Port, p.Path)
+	}
 }
 
 func cmdLevel(args []string) {
@@ -493,6 +548,14 @@ func appendRuntimeEvent(cfg *config.Config, configPath string, ev events.Event) 
 	log, err := events.Open(filepath.Join(runtimeDir, "events.jsonl"))
 	fatal(err)
 	defer log.Close()
+	if run := os.Getenv("HARNESS_RUN"); run != "" { // attribute gate/cost/practice to the eval run
+		if ev.Data == nil {
+			ev.Data = map[string]any{}
+		}
+		if _, set := ev.Data["run"]; !set {
+			ev.Data["run"] = run
+		}
+	}
 	fatal(log.Append(ev))
 }
 
@@ -513,10 +576,7 @@ func resolveRoot(cfg *config.Config, configPath string) string {
 	return abs
 }
 
-func processAlive(pid int) bool {
-	err := syscall.Kill(pid, 0)
-	return err == nil || err == syscall.EPERM
-}
+func processAlive(pid int) bool { return proc.Alive(pid) }
 
 func fatal(err error) {
 	if err != nil {

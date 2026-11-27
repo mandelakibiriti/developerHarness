@@ -7,6 +7,21 @@
     ],
     "per_feature_usd": 2
   },
+  "learn": {
+    "allow": [
+      "context/**",
+      "rules/**",
+      "tracks/**",
+      ".claude/skills/**"
+    ],
+    "deny": [
+      "context/memory/**"
+    ]
+  },
+  "improve": {
+    "proposer": "claude",
+    "k": 3
+  },
   "level": "beginner",
   "listen": "127.0.0.1:4400",
   "profile": "core",
@@ -66,11 +81,14 @@
         "agent-trail"
       ],
       "env": {
-        "CLAUDE_PROJECTS_DIR": "${HOME}/.claude/projects"
+        "CLAUDE_PROJECTS_DIR": "${HOME}/.claude/projects",
+        "HOSTNAME": "127.0.0.1",
+        "PORT": "3030"
       },
-      "health": "http://127.0.0.1:4402/",
+      "health": "http://127.0.0.1:3030/",
       "id": "trail",
-      "profile": "observe",
+      "loopback_only": true,
+      "profile": "core",
       "tab": "Trail",
       "version": "@camtrik/agent-trail@\u003cpin\u003e"
     },

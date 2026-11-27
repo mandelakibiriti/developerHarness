@@ -3,6 +3,10 @@
   "skill": "typescript",
   "goal": "Every I/O edge validates with a schema (zod or similar); `any` never crosses a boundary.",
   "hint": "Look at where data enters (fetch responses, form bodies, localStorage) and exits (API calls). Parse with a schema, then use the inferred type.",
-  "cwd": ".",
-  "process": ["npm", "test"]
+  "cwd": "practice-problems/ts-schema-validation",
+  "process": [
+    "node",
+    "--test",
+    "validate.test.ts"
+  ]
 }

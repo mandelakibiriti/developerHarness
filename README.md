@@ -2,9 +2,171 @@
 
 A local, single-web-view harness that brings six open-source tools together. You use it to start a new production project, or to understand an existing codebase, while learning full-stack best practices at your own level.
 
-> Status (2026-11-25): P0–P1 built, with parts of P2, P4 and P5 (launcher, proxy, discovery, events/SSE, budget, scope refusal, tracks, promotion, practice). The Go server also has a direct LLM chat (`internal/llm`) that isn't in the design below; its prompts now come from the context compiler (§12). Code Mode is served by `harness mcp` (§12). Not built yet: self-improvement. Claims not checked against the upstream code are marked **NEEDS VERIFICATION**.
+**Start with the [step-by-step guide](#getting-started).** Sections 1 onwards are the design and plan; where they differ from the guide, the guide describes what is built.
+
+> Status (2026-11-27): the launcher, web view, event log, budgets, tracks, context compiler, Code Mode, eval judge and improve loop are built. Claims not checked against the upstream code are marked **NEEDS VERIFICATION**.
 
 ---
+
+## Getting started
+
+The harness is a single program. You build it once, then initialise it in each project you want it to track.
+
+### Step 1. Check what you need
+
+| Need | For | Required? |
+|---|---|---|
+| Go 1.26+ | building the harness | to build only |
+| An API key (Claude, NVIDIA NIM, DeepSeek, Gemini or OpenCode) | chat, specs, blueprints | for AI features |
+| [Agent Trail](https://github.com/camtrik/agent-trail) (`npm install -g @camtrik/agent-trail`, Node 22+) | the Trail tab | optional |
+| `jq` | live activity from Claude Code hooks | optional |
+| Python, Node | running that language in Explorer | optional |
+| [Plannotator](https://github.com/backnotprop/plannotator), graphify | spec review, the Graph tab | optional |
+
+### Step 2. Build and install
+
+```sh
+git clone <this repository> && cd devEx_Harness
+go install ./cmd/harness          # installs into $(go env GOPATH)/bin; put that on your PATH
+```
+
+To hand binaries to others instead, run `bash scripts/package.sh`. It writes macOS, Linux and
+Windows builds plus `SHA256SUMS` to `dist/`. Copy the one for your platform onto your PATH:
+
+```sh
+cp dist/harness-darwin-arm64 /usr/local/bin/harness     # Apple Silicon; darwin-amd64 for Intel
+```
+
+### Step 3. Initialise a project
+
+```sh
+cd ~/code/my-project
+harness init                      # or: harness init path/to/project --port 4500
+harness doctor                    # optional: reports missing tools, with a fix for each
+```
+
+`init` writes `harness.json`, `rules/` (chosen from your project's languages), `tracks/`,
+`.claude/` skills and hooks, and `.mcp.json`. It never overwrites a file you already have, and
+adds `.harness/` to `.gitignore`. If you already have `.claude/settings.json`, add the harness
+hooks (§6) yourself.
+
+### Step 4. Start it
+
+```sh
+harness up                        # prints the address, e.g. http://127.0.0.1:4400
+```
+
+Open the address in your browser. The top bar shows which project this instance tracks. Leave the
+terminal open; stop with **Ctrl+C**, or run `harness down` from the project folder.
+
+### Step 5. Connect a model
+
+1. Open **Settings**.
+2. Choose a provider, paste its API key, press **Test key**.
+3. Pick a model, press **Save & use**.
+
+Repeat for other providers. The **Model** menu in the top bar lists every model whose key works.
+Keys are stored as plain text in `.harness/llm.json`, one set per project.
+
+### Step 6. Work through the tabs
+
+Set **Skill** in the top bar first: *beginner* means you write the code with hints,
+*intermediate* means you review, *advanced* lets the agent do more behind gates.
+
+| Order | Tab | What to do | Result |
+|---|---|---|---|
+| 1 | **Architect** | Describe what you are building, press **Generate spec** (**Stop** cancels). Edit the documents, discuss them in the chat beside them, then **Review with Plannotator** | `docs/*.md` |
+| 2 | **Map** | Press **Generate blueprint**. Drag to pan, ⌘/Ctrl+scroll to zoom, click a card for its dependencies and endpoints | `floorplan/plan.json` |
+| 3 | **Explorer** | Click a file in the sidebar, edit, press **▶ Run** (Go, Python, JavaScript). Ask the agent *Will this work?* | Output and advice |
+| 4 | **Graph** | Run `/graphify` in Claude Code first, then search a node and ask about its connections | answers about the codebase |
+| 5 | **Trail** | Replay your coding agents' sessions; **Live activity** shows the harness timeline | what the agent did |
+| 6 | **Telemetry** | Calls, tokens, time, errors and cost by feature and model | what it cost |
+| 7 | **Evals** | Eval runs and their outcomes, proposed improvements, signals from daily use | whether the harness is improving |
+
+**Overview** explains the flow and launches the tools found on your machine. Editor contents in
+Explorer are not saved to disk.
+
+**Cost tracking.** To see cost, add `"usd_per_mtok_in"` and `"usd_per_mtok_out"` (USD per million
+tokens) to `.harness/llm.json`, then restart. Saving in Settings removes them, so add them last.
+The budget limit is `budgets.per_feature_usd` in `harness.json`.
+
+### Step 7. Run several projects
+
+```sh
+cd ~/code/project-a && harness init && harness up     # http://127.0.0.1:4400
+cd ~/code/project-b && harness init && harness up     # next free port, 4410
+harness projects                                      # every project and whether it runs
+```
+
+Each has its own port, keys, event log, docs and evals. One Agent Trail serves them all: the
+instance that started it stops it when that instance stops.
+
+### Step 8. Improve the harness with evals
+
+An eval task needs three things (see [evals/README.md](evals/README.md)):
+
+- `practice-problems/<id>/`: a small folder with a test that **fails before** the work is done
+- `practice-problems/<id>.json`: `{"id", "skill", "goal", "cwd", "process"}`, where `process` runs that test
+- `evals/tasks/<id>.json`: `{"id", "prompt", "problem"}`
+
+```sh
+harness improve split                      # once: fixes which tasks are held out
+RUN=$(harness improve begin --task <id>)
+HARNESS_RUN=$RUN claude -p "<the task prompt>"
+harness improve end --run $RUN             # runs the test; check the agent did not edit it
+harness improve propose                    # suggests edits to rules, tracks, context, skills
+harness improve apply --base <version> --cand <candidate>     # on a branch
+harness improve report --base <old> --cand <new> --split test # adopt only if this says proposable
+```
+
+Results appear in the **Evals** tab.
+
+### Command reference
+
+Run these from the project folder (`init` and `projects` work anywhere).
+
+| Command | Does |
+|---|---|
+| `harness init [folder] [--port N]` | Set up a project |
+| `harness up [--profile core\|observe\|security] [--level …]` | Start it |
+| `harness down` / `harness status` | Stop it / show its state |
+| `harness projects` | List projects |
+| `harness doctor` | Check required tools |
+| `harness level <beginner\|intermediate\|advanced>` | Change level (restart to apply) |
+
+### Windows
+
+`dist/harness-windows-amd64.exe` (and `arm64`) build and pass `go vet`, but **have not been run on
+a Windows machine**. Treat them as untested. In PowerShell:
+
+```powershell
+Copy-Item dist\harness-windows-amd64.exe "$env:USERPROFILE\bin\harness.exe"   # a folder on your PATH
+cd C:\code\my-project; harness init; harness up
+```
+
+Known differences:
+
+- `harness down`, and stopping a tool, force-kill the process tree. Use Ctrl+C for a clean shutdown.
+- The Claude Code hooks use `jq` and shell syntax, so they need Git Bash and `jq`.
+- **Tools on your machine** lists command-line and web tools, not desktop apps.
+- Explorer runs Python as `python`, not `python3`.
+- The `observe` profile's TokenTelemetry starts with `./start.sh`, which Windows cannot run.
+- File permissions do not protect `.harness/llm.json` as they do on macOS and Linux.
+- Evaluation commands above use bash syntax; run them in Git Bash.
+
+### If something goes wrong
+
+| Symptom | Fix |
+|---|---|
+| `listen …: is another harness already running?` | `harness down` in that project, or change `listen` in `harness.json` |
+| Model menu says *No working key* | Settings → test the key again |
+| Trail says it failed to start | Read `.harness/logs/trail.log`; check `agent-trail` is on your PATH |
+| Live activity shows no Claude Code actions | Install `jq`; check the hooks in `.claude/settings.json` |
+| A change to the harness's web page does not appear | Rebuild and restart: the page is built into the binary |
+
+**Security.** The harness listens only on your machine. Explorer's **Run** executes code as you,
+with no sandbox. Agent Trail indexes the sessions of all your projects. ARTEX is an offensive
+tool: it runs only in the `security` profile after `harness scope --confirm`.
 
 ## 1. Principles
 
@@ -219,12 +381,7 @@ Plan review needs no extra hook: Plannotator's own ExitPlanMode hook (installed 
 
 ### Quickstart
 
-```bash
-go run ./cmd/harness doctor
-go run ./cmd/harness up --profile core      # opens http://harness.localhost:4400
-go run ./cmd/harness level intermediate     # switches track + profile, restarts what changed
-go run ./cmd/harness down
-```
+See [Getting started](#getting-started).
 
 ## 7. The end-to-end cycle: "Build a Todo app"
 
@@ -289,7 +446,7 @@ The level lives in `harness.json`. It's **promoted on evidence, not time:** a ru
 | Profile | `core` | `observe` | `security` |
 | Primary tabs | **Map** (plain-English audience), **Learn** step-by-step | **Review** (AI architecture), **Spend** | **Trail** (subagent debugging), **Secure** |
 | Hidden tabs | Trail, Spend, Secure | Secure | none |
-| Who writes code | **You.** Tutor mode with the full hint ladder ([go-tutor](.claude/skills/go-tutor/SKILL.md), language-generic) | The agent writes; you review every plan and diff | The agent, autonomously, with gates |
+| Who writes code | **You.** Tutor mode with the full hint ladder | The agent writes; you review every plan and diff | The agent, autonomously, with gates |
 | Ruleset | Ponytail first: the least code that works; one concept per step; explains *why* for every rule | Full rule packs; focus on boundaries and architecture | Full packs plus security and performance; you write new rules |
 | Gates required | Language gate + map update | + plan approval + budget per feature | + ARTEX audit + replay review of any failed delegation |
 | Floorplan audience | `everyone` | `developers` | `developers` |
@@ -347,5 +504,5 @@ This direction ports [harness2](https://github.com/google-research/harness2)'s i
 | **V0 Foundations** | git repo (so `git_sha` is set); Origin guard on API writes (CSRF); IPv6 host parsing; current model IDs | `go vet ./... && go test -race ./...` (done) |
 | **V1 Context compiler** | `context/system/*.md` (base, mode, mode.level) replaced `llm.SystemPrompt`. `internal/compiler` adds principles, the rule index (id + Rule: line), track, guardrails and skill index to a cacheable prefix, plus the last 5 lessons per domain (`context/memory/lessons/<domain>.jsonl`) as a suffix. The version is a 12-hex hash. A project's `context/` overrides the embedded defaults. Every harness model call logs `llm-usage`, and also a `cost` event when prices are set in `.harness/llm.json`. `harness context compile [--out file]` lets Claude Code opt in via `@file`. Guardrails still live in `harness.json` | Golden + override + lessons tests; stable hash (done) |
 | **V2 Code Mode** | `harness mcp` (stdio MCP, registered in `.mcp.json`) exposes `search` / `describe` / `execute`. `internal/codemode` runs the model's async JS in a fresh goja VM per call with only connector globals: no fetch, require, process, timers or fs. Limits: 30 s, 50 calls, 1024 stack frames, about 6k-token result cap. The read-only connectors are `events.recent`, `budget.status`, `floorplan.plan`, `review.sessions`, `trail.search`, `practice.list/run` and `context.compile`. Nothing can write gate, cost or finding events, so the judge can't be fooled. `save_as` writes snippets to `context/scripts/` for `codemode.run`. Tool guidance is `context/tools/guidance.md`. Each execute logs a `codemode` event. **Deferred:** approval pause and replay, because no approval-gated connector exists until ARTEX's `secure.task` mapping is verified | Sandbox, limits, snippets and MCP protocol tests (done). The A/B token gate (≥25% fewer input tokens) is still open and needs real sessions |
-| **V3 Judge + evals** | `evals/` (practice problems plus recorded cycles), seeded train/test split; a deterministic score from gate, finding, cost and rework events. Failed evals stay unscored | Same events give the same score |
+| **V3 Judge + evals** | `evals/tasks/*.json`: each task names a practice problem, and that problem's real test decides pass or fail. `evals/split.json` is a seeded train/test split (sha256 rank). `harness improve begin/end` brackets a run: `eval-start` stamps the task and harness version, `HARNESS_RUN` stamps hook, gate and cost events with `data.run`, and `end` runs the test itself, so an agent-recorded gate is never trusted. `internal/improve.Judge` scores out of 100: test 40, no High finding 20, within budget 20, rework 10, tool errors 10. If setup failed or there is no `eval-end`, the run is unscored, not 0. `judge` archives `runs/<version>/judged.<split>.json`. `report` applies the adoption rule (≥1 point gain, no PASS→FAIL, cost ≤ +10%, and every base-scored task also scored) and exits 1 otherwise | Determinism, unscored exclusion, split, regression and cost tests (done). The eval set is still 2 tasks |
 | **V4 Improve loop** | propose K edits to `context/`, probe each in a worktree, compose the winners, re-check on the test split. **A human adopts it in Plannotator, never automatically. Guardrails are human-edit only.** Lessons go to memory with evidence; versions are git tags with rollback | One adopted improvement, end to end; rollback restores the previous hash |

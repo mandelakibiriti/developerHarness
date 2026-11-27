@@ -1,0 +1,25 @@
+name: windows
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - run: go vet ./...
+      - run: go test ./...
+      - run: node --test web/floorplan.test.mjs
+      - run: go build ./cmd/harness
