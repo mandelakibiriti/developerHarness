@@ -8,9 +8,25 @@ const ctx = { window: {} };
 vm.runInNewContext(readFileSync(new URL('./floorplan.js', import.meta.url), 'utf8'), ctx);
 const { buildModel } = ctx.window.Floorplan;
 
-test('lays out the real plan: screens/UI left, core domain right', () => {
-  const plan = JSON.parse(readFileSync(new URL('../floorplan/plan.json', import.meta.url), 'utf8'));
-  const m = buildModel(plan);
+// the shape /api/floorplan/generate writes (inline: floorplan/ is not committed)
+const layered = {
+  components: [
+    { id: 'core-domain', name: 'Core Domain', depends_on: [] },
+    { id: 'persist-db', name: 'Database Persistence', depends_on: ['core-domain'] },
+    { id: 'auth-service', name: 'Authentication', depends_on: ['core-domain'] },
+    { id: 'api-http', name: 'HTTP API Layer', depends_on: ['core-domain'] },
+    { id: 'ui-present', name: 'Presentation Layer', depends_on: ['api-http'] },
+  ],
+  screens: [
+    { id: 'login', calls: ['/v1/auth/login'] },
+    { id: 'user-list', calls: ['/v1/users'] },
+    { id: 'dashboard', calls: ['/v1/health', '/v1/users'] },
+  ],
+  build_order: ['core-domain', 'persist-db', 'auth-service', 'api-http', 'ui-present'],
+};
+
+test('lays out a layered plan: screens/UI left, core domain right', () => {
+  const m = buildModel(layered);
   const col = (id) => m.byId.get(id).col;
   assert.equal(col('core-domain'), Math.max(...m.nodes.map((n) => n.col)), 'core domain is rightmost');
   assert.ok(col('ui-present') < col('api-http') && col('api-http') < col('core-domain'));
