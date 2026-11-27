@@ -1,8 +1,11 @@
 package proxy
 
 import (
+	"compress/gzip"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -120,5 +123,52 @@ func TestSameOrigin(t *testing.T) {
 		if rec.Code != c.want {
 			t.Errorf("%s Origin=%q: got %d, want %d", c.method, c.origin, rec.Code, c.want)
 		}
+	}
+}
+
+func TestInjectsIntoHTMLOnly(t *testing.T) {
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var out io.Writer = w
+		w.Header().Set("ETag", "abc")
+		if strings.HasSuffix(r.URL.Path, ".json") {
+			w.Header().Set("Content-Type", "application/json")
+			io.WriteString(w, `{"a":"</head>"}`)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		if strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") { // real tools compress
+			w.Header().Set("Content-Encoding", "gzip")
+			gz := gzip.NewWriter(w)
+			defer gz.Close()
+			out = gz
+		}
+		io.WriteString(out, "<html><head><title>t</title></head><body>hi</body></html>")
+	}))
+	defer up.Close()
+	h := Handler(func(string) (string, bool) { return up.URL, true }, http.NotFoundHandler(),
+		func(sub string) string {
+			if sub == "trail" {
+				return "<style>x</style>"
+			}
+			return ""
+		})
+	get := func(host, path string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.Host = host
+		req.Header.Set("Accept-Encoding", "gzip, br")
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec
+	}
+	themed := get("trail.localhost:4400", "/")
+	want := "<html><head><title>t</title><style>x</style></head><body>hi</body></html>"
+	if themed.Body.String() != want || themed.Header().Get("ETag") != "" || themed.Header().Get("Content-Length") != strconv.Itoa(len(want)) {
+		t.Fatalf("themed = %q headers %v", themed.Body.String(), themed.Header())
+	}
+	if got := get("trail.localhost:4400", "/api.json").Body.String(); got != `{"a":"</head>"}` {
+		t.Fatalf("JSON altered: %q", got)
+	}
+	if got := get("map.localhost:4400", "/"); strings.Contains(got.Header().Get("Content-Encoding"), "br") || got.Header().Get("ETag") != "abc" {
+		t.Fatalf("other tool altered: %v", got.Header())
 	}
 }

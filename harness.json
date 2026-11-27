@@ -90,6 +90,7 @@
       "loopback_only": true,
       "profile": "core",
       "tab": "Trail",
+      "theme": "shadcn",
       "version": "@camtrik/agent-trail@\u003cpin\u003e"
     },
     {

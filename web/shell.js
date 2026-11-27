@@ -853,6 +853,18 @@ function activityItem(ev, running) {
 
 // ---- trail: Agent Trail full width, or the live activity timeline ----
 
+// The restyled copy is served at <tool>.localhost. Not every browser resolves
+// that name, so fall back to the tool's own address if it can't be reached.
+async function themedURL(tool) {
+  if (!tool.embed) return tool.upstream;
+  try { await fetch(tool.embed, { mode: "no-cors" }); return tool.embed; }
+  catch (e) { return tool.upstream; }
+}
+
+function sendTrailTheme(frame) {
+  if (frame && frame.contentWindow) frame.contentWindow.postMessage({ harnessTheme: document.documentElement.dataset.theme }, "*");
+}
+
 async function renderTrail() {
   const pane = document.getElementById("pane-trail");
   if (pane.dataset.rendered) return;
@@ -911,7 +923,7 @@ async function renderTrail() {
       await loadStatus();
       // harness.json decides the port when the harness runs Agent Trail itself
       const own = state.tools.find((t) => t.id === "trail" && t.healthy && t.upstream);
-      if (own) app = { running: true, url: own.upstream };
+      if (own) app = { running: true, url: await themedURL(own) };
     }
     catch (e) { help("Could not check for Agent Trail: " + e.message); return; }
     if (run !== attempt) return; // a newer Reload took over
@@ -922,6 +934,7 @@ async function renderTrail() {
       const frame = el("iframe", "trail-frame");
       frame.title = "Agent Trail sessions";
       frame.setAttribute("sandbox", "allow-scripts allow-same-origin allow-forms allow-popups"); // other origin; no top navigation
+      frame.addEventListener("load", () => sendTrailTheme(frame));
       frame.src = app.url;
       trail.replaceChildren(frame);
       return;
@@ -947,6 +960,8 @@ async function renderTrail() {
     reload.hidden = !isTrail;
     open.hidden = !isTrail || !open.href;
   }
+  new MutationObserver(() => sendTrailTheme(trail.querySelector("iframe")))
+    .observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
   trailBtn.onclick = () => show("trail");
   liveBtn.onclick = () => show("live");
   reload.onclick = start;
