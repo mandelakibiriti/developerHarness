@@ -90,7 +90,7 @@ func HarnessConnectors(env Env) []Connector {
 			Params: []Param{
 				{Name: "q", Type: "string", Doc: "question or identifiers, e.g. \"where are budget alerts raised\""},
 				{Name: "k", Type: "number", Optional: true, Doc: fmt.Sprintf("results, default %d, max %d", defaultHits, maxHits)},
-				{Name: "mode", Type: `"hybrid" | "semantic" | "lexical"`, Optional: true, Doc: "default: hybrid when embeddings work (local Ollama if configured, else the agent's LLM provider), otherwise lexical with a note; lexical is best for exact identifiers"},
+				{Name: "mode", Type: `"hybrid" | "semantic" | "lexical"`, Optional: true, Doc: "default: semantic when embeddings work (local Ollama if configured, else the agent's LLM provider), otherwise lexical with a note; lexical is best for exact identifiers"},
 			},
 			Returns: "{ mode: string; embedder?: string; note?: string; hits: { id: string; label: string; symbol?: string; file?: string; line?: number; doc?: string; community: number; score: number }[] }",
 			Fn:      env.graphSearch,
@@ -295,14 +295,14 @@ func (env Env) graphSearch(ctx context.Context, args map[string]any) (any, error
 		}
 		return searchResult{Mode: mode, Hits: nonNil(hits)}, nil
 	}
-	// Default: hybrid when embeddings work, else keyword search, saying why.
+	// Default: semantic when embeddings work (it beat hybrid in every recall run), else keyword search, saying why.
 	note := "no embeddings available (the active LLM provider has no embeddings API, or no key is saved); keyword search only"
 	if embErr != nil {
 		note = "embeddings misconfigured: " + embErr.Error() + "; keyword search only"
 	} else if emb != nil {
-		hits, err := g.Find(ctx, q, k, "hybrid", emb, env.EmbedCache())
+		hits, err := g.Find(ctx, q, k, "semantic", emb, env.EmbedCache())
 		if err == nil {
-			return searchResult{Mode: "hybrid", Embedder: emb.Name(), Hits: nonNil(hits)}, nil
+			return searchResult{Mode: "semantic", Embedder: emb.Name(), Hits: nonNil(hits)}, nil
 		}
 		note = "embeddings failed (" + err.Error() + "); keyword search only"
 	}

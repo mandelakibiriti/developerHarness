@@ -318,10 +318,10 @@ func TestGraphSearchUsesLLMProviderOrFallsBack(t *testing.T) {
 	if res := search(q); res.Result.([]any)[0] != "lexical" {
 		t.Fatalf("claude: %+v", res)
 	}
-	// NVIDIA with a key: hybrid through the provider, query vs passage marked.
+	// NVIDIA with a key: semantic through the provider, query vs passage marked.
 	write(t, root, ".harness/llm.json", `{"provider":"nvidia","model":"m","base_url":"`+api.URL+`/v1","keys":{"nvidia":"k-nv"}}`)
 	res := search(q)
-	if r := res.Result.([]any); res.Status != "completed" || r[0] != "hybrid" || r[1] != "api-nvidia/nemotron-3.5-embed-1b" || r[3] != "gate" {
+	if r := res.Result.([]any); res.Status != "completed" || r[0] != "semantic" || r[1] != "api-nvidia/nemotron-3.5-embed-1b" || r[3] != "gate" {
 		t.Fatalf("nvidia: %+v", res)
 	}
 	mu.Lock()

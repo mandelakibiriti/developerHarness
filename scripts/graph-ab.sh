@@ -3,7 +3,7 @@
 #
 #   A  baseline: Claude Code with Read/Grep/Glob only
 #   B  A + the harness MCP server, graph.search in keyword (BM25) mode
-#   C  A + the harness MCP server, graph.search default (hybrid: BM25 + embeddings from
+#   C  A + the harness MCP server, graph.search default (semantic: embeddings from
 #      harness.json "embeddings" if set, else the agent's LLM provider)
 #
 # Each question is asked in every arm with headless `claude -p`. An answer

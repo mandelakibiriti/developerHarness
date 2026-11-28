@@ -22,7 +22,7 @@ func cmdGraph(args []string) {
 	}
 	fs := flag.NewFlagSet("graph "+args[0], flag.ExitOnError)
 	configPath := fs.String("config", "harness.json", "path to harness.json")
-	mode := fs.String("mode", "", "lexical|semantic|hybrid (search; default hybrid when embeddings are configured)")
+	mode := fs.String("mode", "", "lexical|semantic|hybrid (search; default semantic when embeddings are available)")
 	k := fs.Int("k", 5, "results")
 	queries := fs.String("queries", "evals/queries.json", "recall: question file")
 	fs.Parse(args[1:])
@@ -49,7 +49,7 @@ func cmdGraph(args []string) {
 		q := strings.Join(fs.Args(), " ")
 		m := *mode
 		if m == "" && emb != nil {
-			m = "hybrid"
+			m = "semantic"
 		}
 		hits, err := g.Find(ctx, q, *k, m, emb, env.EmbedCache())
 		fatal(err)
