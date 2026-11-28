@@ -343,3 +343,32 @@ func TestGraphSearchUsesLLMProviderOrFallsBack(t *testing.T) {
 		t.Fatalf("explicit hybrid with a failing provider must error: %+v", res)
 	}
 }
+
+// A first search that has to embed the whole graph must not hit the sandbox
+// limit: it gives up on embeddings in time and returns keyword results.
+func TestGraphSearchFallsBackWhileEmbeddingsBuild(t *testing.T) {
+	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-r.Context().Done():
+		case <-time.After(5 * time.Second):
+		}
+	}))
+	defer slow.Close()
+	old := defaultEmbedBudget
+	defaultEmbedBudget = 100 * time.Millisecond
+	defer func() { defaultEmbedBudget = old }()
+
+	root := t.TempDir()
+	write(t, root, "p.go", "package p\n\n// Slowpoke is found by keyword.\nfunc Slowpoke() {}\n")
+	write(t, root, "graphify-out/graph.json", `{"nodes":[{"id":"s","label":"Slowpoke","source_file":"p.go","source_location":"L4"}],"links":[]}`)
+	write(t, root, ".harness/llm.json", `{"provider":"nvidia","model":"m","base_url":"`+slow.URL+`/v1","keys":{"nvidia":"k"}}`)
+	rt, err := New(HarnessConnectors(Env{Root: root, Cfg: &config.Config{}}), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt.Timeout = 2 * time.Second
+	res := rt.Execute(context.Background(), `async () => { const r = await graph.search({q: "slowpoke"}); return [r.mode, r.note, r.hits[0].id] }`)
+	if r, ok := res.Result.([]any); res.Status != "completed" || !ok || r[0] != "lexical" || !strings.Contains(r[1].(string), "still building") || r[2] != "s" {
+		t.Fatalf("want keyword fallback while embeddings build: %+v", res)
+	}
+}

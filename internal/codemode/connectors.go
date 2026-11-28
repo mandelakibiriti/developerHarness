@@ -42,6 +42,10 @@ const (
 	maxHits       = 30
 )
 
+// defaultEmbedBudget leaves room inside Code Mode's 30 s limit for the keyword
+// fallback; a var so tests can shorten it.
+var defaultEmbedBudget = 15 * time.Second
+
 var problemID = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
 
 // HarnessConnectors returns the connectors over the harness and its tools.
@@ -300,11 +304,19 @@ func (env Env) graphSearch(ctx context.Context, args map[string]any) (any, error
 	if embErr != nil {
 		note = "embeddings misconfigured: " + embErr.Error() + "; keyword search only"
 	} else if emb != nil {
-		hits, err := g.Find(ctx, q, k, "semantic", emb, env.EmbedCache())
-		if err == nil {
+		// Embedding a whole graph can outlast the sandbox; stop early so the fallback
+		// still returns. Finished batches are saved, so later calls resume.
+		ectx, cancel := context.WithTimeout(ctx, defaultEmbedBudget)
+		hits, err := g.Find(ectx, q, k, "semantic", emb, env.EmbedCache())
+		cancel()
+		switch {
+		case err == nil:
 			return searchResult{Mode: "semantic", Embedder: emb.Name(), Hits: nonNil(hits)}, nil
+		case errors.Is(ectx.Err(), context.DeadlineExceeded) && ctx.Err() == nil:
+			note = "embeddings still building (later calls resume; `harness graph embed` finishes them now); keyword search only"
+		default:
+			note = "embeddings failed (" + err.Error() + "); keyword search only"
 		}
-		note = "embeddings failed (" + err.Error() + "); keyword search only"
 	}
 	return searchResult{Mode: "lexical", Note: note, Hits: nonNil(g.Search(q, k))}, nil
 }

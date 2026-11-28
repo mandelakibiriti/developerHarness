@@ -186,7 +186,7 @@ func refused(err error) bool {
 		return false
 	}
 	switch se.code {
-	case http.StatusBadRequest, http.StatusRequestEntityTooLarge, http.StatusUnprocessableEntity:
+	case http.StatusRequestEntityTooLarge, http.StatusUnprocessableEntity: // not 400: that is usually our request, not the text
 		return true
 	}
 	return false
