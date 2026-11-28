@@ -2,10 +2,15 @@ package codemode
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -223,5 +228,118 @@ func write(t *testing.T, root, rel, body string) {
 	}
 	if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestGraphConnectors(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, "p.go", "package p\n\n// Gatekeeper refuses foreign origins.\nfunc Gatekeeper() {}\n")
+	write(t, root, "graphify-out/graph.json", `{"nodes":[
+		{"id":"gate","label":"Gatekeeper","source_file":"p.go","source_location":"L4"},
+		{"id":"caller","label":"main","source_file":"p.go"}],
+		"links":[{"source":"caller","target":"gate","relation":"calls"}]}`)
+	rt, err := New(HarnessConnectors(Env{Root: root, Cfg: &config.Config{}}), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := rt.Execute(context.Background(), `async () => {
+		const r = await graph.search({q: "who refuses foreign origins", k: 3});
+		if (r.mode !== "lexical" || !r.note) throw new Error("want keyword fallback with a note: " + JSON.stringify(r));
+		const hits = r.hits;
+		const near = await graph.neighbors({id: hits[0].id});
+		return hits[0].symbol + " " + hits[0].file + ":" + hits[0].line + " <- " + near[0].label + " " + near[0].dir;
+	}`)
+	if res.Result != "Gatekeeper p.go:4 <- main in" {
+		t.Fatalf("%+v", res)
+	}
+	for _, bad := range []string{`graph.search({q: ""})`, `graph.search({q: "x", k: 0.5})`, `graph.neighbors({id: "nope"})`} {
+		if res := rt.Execute(context.Background(), "async () => await "+bad); res.Status != "error" {
+			t.Errorf("%s must error: %+v", bad, res)
+		}
+	}
+}
+
+// graph.search needs nothing local: it embeds through the agent's LLM provider
+// when that provider has an embeddings API, and falls back to keywords when it
+// has none or the call fails.
+func TestGraphSearchUsesLLMProviderOrFallsBack(t *testing.T) {
+	var fail atomic.Bool
+	var inputTypes []string
+	var mu sync.Mutex
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if fail.Load() || r.URL.Path != "/v1/embeddings" || r.Header.Get("Authorization") != "Bearer k-nv" {
+			http.Error(w, "nope", http.StatusInternalServerError)
+			return
+		}
+		var req struct {
+			Input     []string `json:"input"`
+			InputType string   `json:"input_type"`
+		}
+		json.NewDecoder(r.Body).Decode(&req)
+		mu.Lock()
+		inputTypes = append(inputTypes, req.InputType)
+		mu.Unlock()
+		type item struct {
+			Index     int       `json:"index"`
+			Embedding []float32 `json:"embedding"`
+		}
+		data := []item{}
+		for i, s := range req.Input {
+			v := []float32{0.1, 0}
+			if strings.Contains(strings.ToLower(s), "reject") || strings.Contains(s, "Gatekeeper") {
+				v = []float32{1, 0}
+			}
+			data = append(data, item{i, v})
+		}
+		json.NewEncoder(w).Encode(map[string]any{"data": data})
+	}))
+	defer api.Close()
+
+	root := t.TempDir()
+	write(t, root, "p.go", "package p\n\n// Gatekeeper refuses foreign origins.\nfunc Gatekeeper() {}\n\nfunc other() {}\n")
+	write(t, root, "graphify-out/graph.json", `{"nodes":[
+		{"id":"gate","label":"Gatekeeper","source_file":"p.go","source_location":"L4"},
+		{"id":"other","label":"other","source_file":"p.go","source_location":"L6"}],"links":[]}`)
+	search := func(code string) Result {
+		rt, err := New(HarnessConnectors(Env{Root: root, Cfg: &config.Config{}}), "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return rt.Execute(context.Background(), code)
+	}
+	const q = `async () => { const r = await graph.search({q: "reject", k: 2}); return [r.mode, r.embedder || "", r.note || "", r.hits.length ? r.hits[0].id : ""] }`
+
+	// No llm.json: keyword search, with a note, and no error.
+	if res := search(q); res.Status != "completed" || res.Result.([]any)[0] != "lexical" || res.Result.([]any)[2] == "" {
+		t.Fatalf("no provider: %+v", res)
+	}
+	// A provider without an embeddings API (Claude): still keyword search.
+	write(t, root, ".harness/llm.json", `{"provider":"claude","model":"claude-sonnet-5-5","keys":{"claude":"k"}}`)
+	if res := search(q); res.Result.([]any)[0] != "lexical" {
+		t.Fatalf("claude: %+v", res)
+	}
+	// NVIDIA with a key: semantic through the provider, query vs passage marked.
+	write(t, root, ".harness/llm.json", `{"provider":"nvidia","model":"m","base_url":"`+api.URL+`/v1","keys":{"nvidia":"k-nv"}}`)
+	res := search(q)
+	if r := res.Result.([]any); res.Status != "completed" || r[0] != "semantic" || r[1] != "api-nvidia/nemotron-3.5-embed-1b" || r[3] != "gate" {
+		t.Fatalf("nvidia: %+v", res)
+	}
+	mu.Lock()
+	if strings.Join(inputTypes, ",") != "passage,query" {
+		t.Errorf("input types %v", inputTypes)
+	}
+	mu.Unlock()
+	// The provider failing (outage, bad key) falls back instead of erroring;
+	// an explicit hybrid request does error.
+	os.RemoveAll(filepath.Join(root, ".harness", "cache"))
+	write(t, root, "p.go", "package p\n\n// Gatekeeper refuses foreign origins now.\nfunc Gatekeeper() {}\n\nfunc other() {}\n")
+	write(t, root, "graphify-out/graph.json", `{"nodes":[
+		{"id":"gate","label":"Gatekeeper","source_file":"p.go","source_location":"L4"}],"links":[]}`)
+	fail.Store(true)
+	if res := search(q); res.Status != "completed" || res.Result.([]any)[0] != "lexical" || !strings.Contains(res.Result.([]any)[2].(string), "embeddings failed") {
+		t.Fatalf("provider down: %+v", res)
+	}
+	if res := search(`async () => await graph.search({q: "reject", mode: "hybrid"})`); res.Status != "error" {
+		t.Fatalf("explicit hybrid with a failing provider must error: %+v", res)
 	}
 }

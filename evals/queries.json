@@ -1,0 +1,15 @@
+{
+  "about": "Questions about this repo whose answer is one function. Used for graph search recall (internal/graph tests) and for the agent A/B test (scripts/graph-ab.sh). The 'symbol' and 'file' fields are the ground truth.",
+  "queries": [
+    {"id": "csrf",       "q": "Which function rejects cross-origin POST requests to the harness API (CSRF protection)?", "file": "internal/proxy/proxy.go",        "symbol": "SameOrigin"},
+    {"id": "frames",     "q": "Where are frame-blocking headers like X-Frame-Options removed from proxied tool responses?", "file": "internal/proxy/proxy.go", "symbol": "sanitize"},
+    {"id": "promotion",  "q": "Which function decides whether a learner gets promoted to the next level?",               "file": "internal/promote/promote.go",    "symbol": "Evaluate"},
+    {"id": "split",      "q": "Where is the seeded train/test split of eval tasks computed?",                              "file": "internal/improve/tasks.go",      "symbol": "NewSplit"},
+    {"id": "sandbox",    "q": "Which function runs model-written JavaScript in the Code Mode sandbox?",                    "file": "internal/codemode/codemode.go",  "symbol": "Execute", "require": [["Execute", "run"]]},
+    {"id": "ctxversion", "q": "Where is the system prompt assembled and its version hash computed?",                       "file": "internal/compiler/compiler.go",  "symbol": "Compile"},
+    {"id": "llmcost",    "q": "How is the dollar cost of an LLM call computed from token usage?",                          "file": "internal/llm/llm.go",            "symbol": "CostUSD"},
+    {"id": "loopback",   "q": "Which function checks that a list of hosts is loopback only?",                              "file": "internal/scope/scope.go",        "symbol": "Loopback"},
+    {"id": "budgetalert","q": "What turns cost events into budget-alert events when a spending threshold is crossed?",     "file": "internal/harness/runtime.go",    "symbol": "startBudgetWatcher"},
+    {"id": "adoption",   "q": "Where is the rule that decides if a candidate harness version beats the base version?",     "file": "internal/improve/judge.go",      "symbol": "Compare"}
+  ]
+}

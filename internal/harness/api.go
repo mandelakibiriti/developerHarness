@@ -30,18 +30,8 @@ func (rt *Runtime) graphFile() string     { return filepath.Join(rt.root, "graph
 // readLLMFromDisk loads the active config and per-provider keys. A file from
 // before per-provider keys has only api_key; it becomes the active provider's key.
 func (rt *Runtime) readLLMFromDisk() (*llm.Config, map[string]string) {
-	f := llmFile{}
-	if b, err := os.ReadFile(rt.llmConfigPath()); err == nil {
-		_ = json.Unmarshal(b, &f)
-	}
-	if f.Keys == nil {
-		f.Keys = map[string]string{}
-	}
-	if f.APIKey != "" && f.Keys[f.Provider] == "" {
-		f.Keys[f.Provider] = f.APIKey
-	}
-	cfg := f.Config
-	return &cfg, f.Keys
+	cfg, keys := llm.ReadSaved(rt.llmConfigPath())
+	return &cfg, keys
 }
 
 func (rt *Runtime) currentLLM() *llm.Config {

@@ -386,11 +386,6 @@ The launcher is about 400–600 lines of stdlib Go.
 
 Plan review needs no extra hook: Plannotator's own ExitPlanMode hook (installed with Plannotator) opens every agent plan for review.
 
-### Quickstart
-
-See [Getting started](#getting-started).
-
-## 7. The end-to-end cycle: "Build a Todo app"
 
 The `harness-cycle` skill drives this, and each step appends an event. The shell's timeline shows them in order.
 
@@ -408,7 +403,7 @@ The `harness-cycle` skill drives this, and each step appends an event. The shell
 
 The loop repeats per feature. A feature counts as done when its card is built on the map, its last `gate` event is PASS, it's within budget, and it has no open High findings.
 
-## 8. Teaching and enforcing best practices
+## 7. Teaching and enforcing best practices
 
 ### Rule packs (`rules/*.md`)
 
@@ -444,7 +439,7 @@ Teach:    LearnHarness goal "why native clients pin API versions".
 | Security | ARTEX | Findings with evidence; High findings block "done" | Blocking for "done" |
 | Cost | TokenTelemetry | Budgets are observational upstream; the harness turns a 100% alert into a cycle warning | Advisory |
 
-## 9. Adapting to skill level
+## 8. Adapting to skill level
 
 The level lives in `harness.json`. It's **promoted on evidence, not time:** a run of PASS `gate` events with no hint-ladder rung above 2 (beginner → intermediate), and no High ARTEX findings across two features (intermediate → advanced).
 
@@ -459,7 +454,6 @@ The level lives in `harness.json`. It's **promoted on evidence, not time:** a ru
 | Floorplan audience | `everyone` | `developers` | `developers` |
 | Typical exercise | Build one card: model → repository → controller → handler | Reject an over-engineered AI plan; cut a feature's token cost by 30% using Spend and Trail | Debug a subagent that lost context (Trail injected-context view); pentest your own API |
 
-## 10. The hardest problems (critique)
 
 1. **One web view across six origins.**
    - Tools can send `X-Frame-Options` or a CSP `frame-ancestors` that blocks iframes. Next.js apps use absolute `/_next/` paths that break under path-prefix proxying. Cookies are origin-scoped.
@@ -486,30 +480,3 @@ The level lives in `harness.json`. It's **promoted on evidence, not time:** a ru
 9. **Upstream churn.** Six fast-moving repos (several had commits this week). Integrate through documented CLIs, files and APIs only. Pin versions. Run `doctor` against the pins. Keep a contract test per integration (e.g. "`plannotator sessions --json` returns objects with `url`").
 10. **Cognitive load.** Six tabs is a cockpit, and a beginner needs a single window. Hide tabs per level, and make the timeline the default view ("what just happened"), not the tabs.
 11. **Enforcement is soft.** Most gates are human-approved annotations, not hard checks. That's deliberate (judgment stays with you), but you can rubber-stamp. Mitigation: blocking gates only where a machine can decide (tests, lint, ARTEX High findings), and `gate` events that record who approved what.
-
-## 11. Plan
-
-Each phase ends with a gate command that must pass, recorded as a `gate` event in `.harness/events.jsonl`.
-
-| Phase | Build | Gate |
-|---|---|---|
-| **P0 Launcher** | `harness.json` schema + validation, `doctor`, `up/down/status` for the `core` profile, a shell of links plus health dots | `go vet ./... && go test -race ./... && go run ./cmd/harness doctor` |
-| **P1 One view** | Subdomain reverse proxy, iframe tabs, discovery of random ports, `.harness/events.jsonl` + SSE timeline, Claude Code hooks | Proxy test with an `httptest` upstream that sends `X-Frame-Options`; SSE client test; manual check in 3 browsers |
-| **P2 Observe + rules** | The `observe` profile (Agent Trail, TokenTelemetry), `rule-gate` skill, rule packs for Go, TS, web, api-design and architecture, `harness-cycle` skill, budgets in the timeline | One full Todo cycle (§7, steps 1–6) recorded in the timeline |
-| **P3 Security** | The `security` profile, ARTEX via Docker, scope mapping and refusal, findings sent to the Plannotator Inbox | ARTEX audit of the local Todo API with scope printed and approvals logged; zero requests outside loopback (checked from ARTEX's traffic recording) |
-| **P4 Deep learning** | A LearnHarness plugin: Floorplan `graph.json` as a view, plus practice problems whose `process` step runs real tests in the repo; rule packs for Python, Rust and native | A practice problem that fails on a wrong solution and passes on a right one, end to end |
-| **P5 Levels** | `tracks/*.json`, evidence-based promotion, per-level tab hiding | A beginner track run end to end by someone who isn't the author |
-
-**Out of scope for now:** multi-user or remote access, a cloud mode, replacing any tool's UI, and a database of our own. Add them only when a phase above needs them.
-
-## 12. Next (v1): harness as data, Code Mode, self-improvement
-
-This direction ports [harness2](https://github.com/google-research/harness2)'s idea: improve the *harness* (prompts, guardrails, memory, tool guidance, subagents, skills, scripts, plugins) while the model stays fixed.
-
-| Phase | Build | Gate |
-|---|---|---|
-| **V0 Foundations** | git repo (so `git_sha` is set); Origin guard on API writes (CSRF); IPv6 host parsing; current model IDs | `go vet ./... && go test -race ./...` (done) |
-| **V1 Context compiler** | `context/system/*.md` (base, mode, mode.level) replaced `llm.SystemPrompt`. `internal/compiler` adds principles, the rule index (id + Rule: line), track, guardrails and skill index to a cacheable prefix, plus the last 5 lessons per domain (`context/memory/lessons/<domain>.jsonl`) as a suffix. The version is a 12-hex hash. A project's `context/` overrides the embedded defaults. Every harness model call logs `llm-usage`, and also a `cost` event when prices are set in `.harness/llm.json`. `harness context compile [--out file]` lets Claude Code opt in via `@file`. Guardrails still live in `harness.json` | Golden + override + lessons tests; stable hash (done) |
-| **V2 Code Mode** | `harness mcp` (stdio MCP, registered in `.mcp.json`) exposes `search` / `describe` / `execute`. `internal/codemode` runs the model's async JS in a fresh goja VM per call with only connector globals: no fetch, require, process, timers or fs. Limits: 30 s, 50 calls, 1024 stack frames, about 6k-token result cap. The read-only connectors are `events.recent`, `budget.status`, `floorplan.plan`, `review.sessions`, `trail.search`, `practice.list/run` and `context.compile`. Nothing can write gate, cost or finding events, so the judge can't be fooled. `save_as` writes snippets to `context/scripts/` for `codemode.run`. Tool guidance is `context/tools/guidance.md`. Each execute logs a `codemode` event. **Deferred:** approval pause and replay, because no approval-gated connector exists until ARTEX's `secure.task` mapping is verified | Sandbox, limits, snippets and MCP protocol tests (done). The A/B token gate (≥25% fewer input tokens) is still open and needs real sessions |
-| **V3 Judge + evals** | `evals/tasks/*.json`: each task names a practice problem, and that problem's real test decides pass or fail. `evals/split.json` is a seeded train/test split (sha256 rank). `harness improve begin/end` brackets a run: `eval-start` stamps the task and harness version, `HARNESS_RUN` stamps hook, gate and cost events with `data.run`, and `end` runs the test itself, so an agent-recorded gate is never trusted. `internal/improve.Judge` scores out of 100: test 40, no High finding 20, within budget 20, rework 10, tool errors 10. If setup failed or there is no `eval-end`, the run is unscored, not 0. `judge` archives `runs/<version>/judged.<split>.json`. `report` applies the adoption rule (≥1 point gain, no PASS→FAIL, cost ≤ +10%, and every base-scored task also scored) and exits 1 otherwise | Determinism, unscored exclusion, split, regression and cost tests (done). The eval set is still 2 tasks |
-| **V4 Improve loop** | propose K edits to `context/`, probe each in a worktree, compose the winners, re-check on the test split. **A human adopts it in Plannotator, never automatically. Guardrails are human-edit only.** Lessons go to memory with evidence; versions are git tags with rollback | One adopted improvement, end to end; rollback restores the previous hash |

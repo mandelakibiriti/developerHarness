@@ -80,3 +80,11 @@ earlier scores incomparable.
 - There are only two tasks, one held out. Aim for at least ten before acting on a score.
 - A lesson added for one `domain` changes that task's version hash, which splits versions
   across tasks. Check "Not scored" before comparing.
+
+## Codebase questions (graph search)
+
+`queries.json` holds questions about this repo, each answered by one function (`file` plus `symbol`).
+- `go test ./internal/graph -run RepoRecall -v` measures `graph.search` recall on the real graph.
+- `scripts/graph-ab.sh [model]` asks each question of headless Claude Code twice, with and without
+  the harness MCP server. It reports correctness, tokens, cost and turns, and writes the results to
+  `.harness/graph-ab/`.

@@ -1,0 +1,25 @@
+{
+  "about": "Harder codebase questions: call chains, cross-cutting concerns and area reviews. Each answer must name every group in 'require'; any name in a group counts, because one correct answer may name a wrapper and another the function it calls. Ground truth was checked against the source on 2026-11-28.",
+  "queries": [
+    {"id": "chatprompt", "q": "Trace how a chat request from the web shell gets its system prompt: name the functions from the HTTP handler to where the prompt is assembled.",
+     "require": [["handleChat"], ["chat"], ["Compile"]]},
+    {"id": "sandboxlimits", "q": "Review the Code Mode sandbox: which functions enforce its timeout, its connector call cap, and its result-size cap?",
+     "require": [["Execute", "run"], ["install"], ["shrink"]]},
+    {"id": "evalpass", "q": "When an eval run ends, which functions run the task's test, and which later turn that result into a score?",
+     "require": [["improveEnd"], ["Run", "RunContext"], ["Judge", "finish"]]},
+    {"id": "traversal", "q": "Which functions validate ids or names that end up in file paths, to prevent path traversal? List all of them.",
+     "require": [["practiceRun"], ["SaveSnippet", "readSnippet"], ["LoadTasks"], ["lessons"]]},
+    {"id": "budgetusers", "q": "Which functions build a budget tracker from the config, and which one raises budget alerts as costs arrive?",
+     "require": [["budgetStatus"], ["Start"], ["startBudgetWatcher"]]},
+    {"id": "proxypipeline", "q": "In the subdomain proxy, which functions route a request to a tool, strip frame-blocking headers, and inject the theme snippet into HTML?",
+     "require": [["Handler", "splitHost"], ["sanitize"], ["addToHead"], ["serveReverse"]]},
+    {"id": "versionflow", "q": "Where is an eval run's harness_version computed, and where are two harness versions compared to decide adoption?",
+     "require": [["improveBegin"], ["Compile"], ["Compare"]]},
+    {"id": "mcpexecute", "q": "Trace an MCP tools/call for the execute tool: the functions from reading the JSON-RPC request, to running the JavaScript, to logging the codemode event.",
+     "require": [["Serve", "handle"], ["cmdMCP"], ["Execute"], ["appendEventQuiet"]]},
+    {"id": "loopbackguards", "q": "List every function that enforces that the harness only talks to, or accepts requests from, loopback hosts.",
+     "require": [["Loopback"], ["trailSearch"], ["Validate"], ["SameOrigin"]]},
+    {"id": "promotionflow", "q": "What evidence does level promotion use, which function evaluates it, and which functions apply the new level from the CLI?",
+     "require": [["Evaluate"], ["cmdPromote"], ["applyLevel"]]}
+  ]
+}
