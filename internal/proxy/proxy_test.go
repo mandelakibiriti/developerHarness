@@ -1,10 +1,16 @@
 package proxy
 
 import (
+	"bufio"
+	"bytes"
 	"compress/gzip"
+	"fmt"
 	"io"
+	"log"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -170,5 +176,57 @@ func TestInjectsIntoHTMLOnly(t *testing.T) {
 	}
 	if got := get("map.localhost:4400", "/"); strings.Contains(got.Header().Get("Content-Encoding"), "br") || got.Header().Get("ETag") != "abc" {
 		t.Fatalf("other tool altered: %v", got.Header())
+	}
+}
+
+// An upstream that sends part of a chunked body, then drops the connection:
+// what a tool does when it restarts mid-response.
+func droppingUpstream(t *testing.T, contentType string) string {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { ln.Close() })
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				defer c.Close()
+				bufio.NewReader(c).ReadString('\n') // request line is enough
+				fmt.Fprintf(c, "HTTP/1.1 200 OK\r\nContent-Type: %s\r\nTransfer-Encoding: chunked\r\n\r\n6\r\npartia\r\n", contentType)
+			}()
+		}
+	}()
+	return "http://" + ln.Addr().String()
+}
+
+func TestUpstreamDropLogging(t *testing.T) {
+	var buf bytes.Buffer
+	log.SetOutput(&buf)
+	defer log.SetOutput(os.Stderr)
+	for _, c := range []struct {
+		ct, path string
+		logged   bool
+	}{
+		{"text/event-stream", "/api/events", false}, // EventSource reconnects by itself: not an error
+		{"text/html", "/page", true},                // a truncated page is worth a line naming the tool
+	} {
+		buf.Reset()
+		up := droppingUpstream(t, c.ct)
+		h := Handler(func(string) (string, bool) { return up, true }, http.NotFoundHandler())
+		req := httptest.NewRequest("GET", c.path, nil)
+		req.Host = "trail.localhost:4400"
+		h.ServeHTTP(httptest.NewRecorder(), req)
+		out := buf.String()
+		if !c.logged && out != "" {
+			t.Errorf("%s: stream drop should be silent, got %q", c.ct, out)
+		}
+		if c.logged && !(strings.Contains(out, "trail") && strings.Contains(out, c.path) && strings.Contains(out, "unexpected EOF")) {
+			t.Errorf("%s: want a line naming tool, path and error, got %q", c.ct, out)
+		}
 	}
 }
