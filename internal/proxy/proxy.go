@@ -13,6 +13,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -49,7 +50,7 @@ func Handler(resolve Resolver, fallback http.Handler, inject ...Injector) http.H
 		if len(inject) > 0 {
 			snippet = inject[0](sub)
 		}
-		serveReverse(w, r, upstream, snippet)
+		serveReverse(w, r, sub, upstream, snippet)
 	})
 }
 
@@ -70,12 +71,13 @@ func splitHost(host string) (sub string, root bool) {
 	return h, false
 }
 
-func serveReverse(w http.ResponseWriter, r *http.Request, upstream, snippet string) {
+func serveReverse(w http.ResponseWriter, r *http.Request, sub, upstream, snippet string) {
 	target, err := url.Parse(upstream)
 	if err != nil || target.Host == "" {
 		http.Error(w, "bad upstream", http.StatusBadGateway)
 		return
 	}
+	pl := &proxyLog{prefix: fmt.Sprintf("proxy %s: %s %s: ", sub, r.Method, r.URL.Path)}
 	proxy := &httputil.ReverseProxy{
 		Director: func(req *http.Request) {
 			req.URL.Scheme = target.Scheme
@@ -89,6 +91,7 @@ func serveReverse(w http.ResponseWriter, r *http.Request, upstream, snippet stri
 			}
 		},
 		ModifyResponse: func(resp *http.Response) error {
+			pl.stream = strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream")
 			if err := sanitize(resp); err != nil {
 				return err
 			}
@@ -98,8 +101,24 @@ func serveReverse(w http.ResponseWriter, r *http.Request, upstream, snippet stri
 			http.Error(w, fmt.Sprintf("upstream unreachable: %v", err), http.StatusBadGateway)
 		},
 		FlushInterval: 100 * time.Millisecond,
+		ErrorLog:      log.New(pl, "", 0),
 	}
 	proxy.ServeHTTP(w, r)
+}
+
+// proxyLog names the tool and path on ReverseProxy's log lines, and drops them
+// for event streams: a tool restarting cuts its SSE streams ("unexpected EOF
+// during body copy") and the browser's EventSource simply reconnects.
+type proxyLog struct {
+	prefix string
+	stream bool // set by ModifyResponse, read by the same request's goroutine
+}
+
+func (l *proxyLog) Write(p []byte) (int, error) {
+	if !l.stream {
+		log.Print(l.prefix + strings.TrimPrefix(strings.TrimSpace(string(p)), "httputil: "))
+	}
+	return len(p), nil
 }
 
 // addToHead inserts snippet before </head> of an uncompressed HTML response.
