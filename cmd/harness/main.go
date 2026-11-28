@@ -106,7 +106,7 @@ Usage:
   harness improve  end --run ID [--root dir] [--error reason]
   harness improve  judge [--split train|test|all] [--json]
   harness improve  report --base V --cand V [--split test] [--json]
-  harness graph    embed | search [--mode lexical|semantic|hybrid] [--k N] <query> | recall [--queries file] [--k N]
+  harness graph    embed | search [--mode lexical|semantic] [--k N] <query> | recall [--queries file] [--k N]
   harness context  compile [--mode architect|build|explain] [--level L] [--domain D] [--out file] [--json]
 `)
 }

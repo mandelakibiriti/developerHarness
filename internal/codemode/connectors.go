@@ -94,7 +94,7 @@ func HarnessConnectors(env Env) []Connector {
 			Params: []Param{
 				{Name: "q", Type: "string", Doc: "question or identifiers, e.g. \"where are budget alerts raised\""},
 				{Name: "k", Type: "number", Optional: true, Doc: fmt.Sprintf("results, default %d, max %d", defaultHits, maxHits)},
-				{Name: "mode", Type: `"hybrid" | "semantic" | "lexical"`, Optional: true, Doc: "default: semantic when embeddings work (local Ollama if configured, else the agent's LLM provider), otherwise lexical with a note; lexical is best for exact identifiers"},
+				{Name: "mode", Type: `"semantic" | "lexical"`, Optional: true, Doc: "default: semantic when embeddings work (local Ollama if configured, else the agent's LLM provider), otherwise lexical with a note; lexical is best for exact identifiers"},
 			},
 			Returns: "{ mode: string; embedder?: string; note?: string; hits: { id: string; label: string; symbol?: string; file?: string; line?: number; doc?: string; community: number; score: number }[] }",
 			Fn:      env.graphSearch,
@@ -228,9 +228,7 @@ func (env Env) trailSearch(ctx context.Context, args map[string]any) (any, error
 }
 
 // Graph loads the code graph.
-func (env Env) Graph() (*graph.Graph, error) { return env.graph() }
-
-func (env Env) graph() (*graph.Graph, error) {
+func (env Env) Graph() (*graph.Graph, error) {
 	return graph.Load(filepath.Join(env.Root, "graphify-out", "graph.json"), env.Root)
 }
 
@@ -284,7 +282,7 @@ func (env Env) graphSearch(ctx context.Context, args map[string]any) (any, error
 		return nil, err
 	}
 	mode, _ := args["mode"].(string)
-	g, err := env.graph()
+	g, err := env.Graph()
 	if err != nil {
 		return nil, err
 	}
@@ -299,7 +297,7 @@ func (env Env) graphSearch(ctx context.Context, args map[string]any) (any, error
 		}
 		return searchResult{Mode: mode, Hits: nonNil(hits)}, nil
 	}
-	// Default: semantic when embeddings work (it beat hybrid in every recall run), else keyword search, saying why.
+	// Default: semantic when embeddings work, else keyword search, saying why.
 	note := "no embeddings available (the active LLM provider has no embeddings API, or no key is saved); keyword search only"
 	if embErr != nil {
 		note = "embeddings misconfigured: " + embErr.Error() + "; keyword search only"
@@ -331,7 +329,7 @@ func (env Env) graphNeighbors(_ context.Context, args map[string]any) (any, erro
 	if err != nil {
 		return nil, err
 	}
-	g, err := env.graph()
+	g, err := env.Graph()
 	if err != nil {
 		return nil, err
 	}

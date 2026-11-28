@@ -27,9 +27,9 @@ go build -o "$ROOT/.harness/bin/harness" "$ROOT/cmd/harness"
 
 # One harness.json per arm; the absolute root keeps it pointed at this repo.
 jq --arg root "$ROOT" '.project.root = $root | del(.embeddings)' "$ROOT/harness.json" >"$TMP/lexical.json"
-jq --arg root "$ROOT" '.project.root = $root' "$ROOT/harness.json" >"$TMP/hybrid.json"
+jq --arg root "$ROOT" '.project.root = $root' "$ROOT/harness.json" >"$TMP/semantic.json"
 if [[ " $ARMS " == *" C "* ]]; then
-  "$ROOT/.harness/bin/harness" graph embed --config "$TMP/hybrid.json"
+  "$ROOT/.harness/bin/harness" graph embed --config "$TMP/semantic.json"
 fi
 mcp() { jq -nc --arg bin "$ROOT/.harness/bin/harness" --arg cfg "$1" '{mcpServers:{harness:{command:$bin,args:["mcp","--config",$cfg]}}}'; }
 
@@ -39,7 +39,7 @@ ask() { # arm question
   local arm=$1 q=$2 cfg='{"mcpServers":{}}' tools="Read Grep Glob" extra=()
   case $arm in
     B) cfg=$(mcp "$TMP/lexical.json") ;;
-    C) cfg=$(mcp "$TMP/hybrid.json") ;;
+    C) cfg=$(mcp "$TMP/semantic.json") ;;
   esac
   if [ "$arm" != A ]; then
     tools="$tools mcp__harness__execute mcp__harness__search mcp__harness__describe"

@@ -22,7 +22,7 @@ func cmdGraph(args []string) {
 	}
 	fs := flag.NewFlagSet("graph "+args[0], flag.ExitOnError)
 	configPath := fs.String("config", "harness.json", "path to harness.json")
-	mode := fs.String("mode", "", "lexical|semantic|hybrid (search; default semantic when embeddings are available)")
+	mode := fs.String("mode", "", "lexical|semantic (search; default semantic when embeddings are available)")
 	k := fs.Int("k", 5, "results")
 	queries := fs.String("queries", "evals/queries.json", "recall: question file")
 	fs.Parse(args[1:])
@@ -91,7 +91,7 @@ func graphRecall(ctx context.Context, g *graph.Graph, emb graph.Embedder, cacheD
 	qs := loadQueries(path)
 	modes := []string{"lexical"}
 	if emb != nil {
-		modes = append(modes, "semantic", "hybrid")
+		modes = append(modes, "semantic")
 	}
 	for _, mode := range modes {
 		var found, total, complete int

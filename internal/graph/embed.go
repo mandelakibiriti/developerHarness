@@ -32,8 +32,6 @@ type Embedder interface {
 const (
 	embedBatch   = 32
 	embedTimeout = 2 * time.Minute // per batch; the first batch also loads the model
-	fusePool     = 50              // each ranking contributes its top fusePool to hybrid
-	rrfK         = 60              // reciprocal rank fusion constant (Cormack et al.)
 )
 
 // Ollama embeds with a local Ollama server's /api/embed.
@@ -340,14 +338,14 @@ func (g *Graph) semantic(ctx context.Context, q string, e Embedder, cacheDir str
 	return hits, nil
 }
 
-// Find searches in one of three modes: "lexical" (BM25, no embedder needed),
-// "semantic" (embedding cosine), or "hybrid" (reciprocal rank fusion of both).
+// Find searches in one of two modes: "lexical" (BM25, no embedder needed) or
+// "semantic" (embedding cosine).
 func (g *Graph) Find(ctx context.Context, q string, k int, mode string, e Embedder, cacheDir string) ([]Hit, error) {
 	if mode == "" || mode == "lexical" {
 		return g.Search(q, k), nil
 	}
-	if mode != "semantic" && mode != "hybrid" {
-		return nil, fmt.Errorf("mode must be lexical, semantic or hybrid, not %q", mode)
+	if mode != "semantic" {
+		return nil, fmt.Errorf("mode must be lexical or semantic, not %q", mode)
 	}
 	if e == nil {
 		return nil, errors.New(`no embeddings configured in harness.json; use mode "lexical"`)
@@ -356,29 +354,7 @@ func (g *Graph) Find(ctx context.Context, q string, k int, mode string, e Embedd
 	if err != nil {
 		return nil, err
 	}
-	if mode == "semantic" {
-		return topK(sem, k), nil
-	}
-	fused := map[string]*Hit{}
-	var order []string
-	for _, list := range [][]Hit{topK(g.lexical(q), fusePool), topK(sem, fusePool)} {
-		for rank, h := range list {
-			f := fused[h.ID]
-			if f == nil {
-				f = &Hit{Node: h.Node}
-				fused[h.ID] = f
-				order = append(order, h.ID)
-			}
-			f.Score += 1.0 / float64(rrfK+rank+1)
-		}
-	}
-	out := make([]Hit, 0, len(order))
-	for _, id := range order {
-		h := *fused[id]
-		h.Score = math.Round(h.Score*1e5) / 1e3 // ×100, so scores read like 3.2 not 0.032
-		out = append(out, h)
-	}
-	return topK(out, k), nil
+	return topK(sem, k), nil
 }
 
 func unit(v []float32) []float32 {

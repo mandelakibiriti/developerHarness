@@ -52,9 +52,6 @@ func TestSemanticFindsSynonymsAndCaches(t *testing.T) {
 	if err != nil || len(hits) == 0 || hits[0].ID != "gate" {
 		t.Fatalf("semantic: %+v %v", hits, err)
 	}
-	if hy, err := g.Find(ctx, "reject cross", 3, "hybrid", e, dir); err != nil || hy[0].ID != "gate" {
-		t.Fatalf("hybrid: %+v %v", hy, err)
-	}
 
 	// A fresh graph value re-reads the on-disk cache: only the query is embedded.
 	cache.g = nil
@@ -66,8 +63,8 @@ func TestSemanticFindsSynonymsAndCaches(t *testing.T) {
 	if _, err := g.Find(ctx, "x", 3, "fuzzy", e, dir); err == nil {
 		t.Fatal("unknown mode must error")
 	}
-	if _, err := g.Find(ctx, "x", 3, "hybrid", nil, dir); err == nil {
-		t.Fatal("hybrid without an embedder must error, not silently fall back")
+	if _, err := g.Find(ctx, "x", 3, "semantic", nil, dir); err == nil {
+		t.Fatal("semantic without an embedder must error, not silently fall back")
 	}
 }
 

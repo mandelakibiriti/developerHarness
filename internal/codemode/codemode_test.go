@@ -330,7 +330,7 @@ func TestGraphSearchUsesLLMProviderOrFallsBack(t *testing.T) {
 	}
 	mu.Unlock()
 	// The provider failing (outage, bad key) falls back instead of erroring;
-	// an explicit hybrid request does error.
+	// an explicit semantic request does error.
 	os.RemoveAll(filepath.Join(root, ".harness", "cache"))
 	write(t, root, "p.go", "package p\n\n// Gatekeeper refuses foreign origins now.\nfunc Gatekeeper() {}\n\nfunc other() {}\n")
 	write(t, root, "graphify-out/graph.json", `{"nodes":[
@@ -339,8 +339,8 @@ func TestGraphSearchUsesLLMProviderOrFallsBack(t *testing.T) {
 	if res := search(q); res.Status != "completed" || res.Result.([]any)[0] != "lexical" || !strings.Contains(res.Result.([]any)[2].(string), "embeddings failed") {
 		t.Fatalf("provider down: %+v", res)
 	}
-	if res := search(`async () => await graph.search({q: "reject", mode: "hybrid"})`); res.Status != "error" {
-		t.Fatalf("explicit hybrid with a failing provider must error: %+v", res)
+	if res := search(`async () => await graph.search({q: "reject", mode: "semantic"})`); res.Status != "error" {
+		t.Fatalf("explicit semantic with a failing provider must error: %+v", res)
 	}
 }
 

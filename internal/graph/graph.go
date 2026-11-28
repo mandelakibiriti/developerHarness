@@ -4,7 +4,7 @@
 //
 // Search is lexical BM25 over each node's name, file path, and the doc comment
 // and declaration line read from the source; with an Embedder (embed.go) it can
-// also rank by embedding similarity, or fuse both ("hybrid"). Every mode is an
+// also rank by embedding similarity ("semantic"). Every mode is an
 // exact scan: at this graph's size (about 1k nodes) that takes a millisecond,
 // so there is no ANN index. FAISS was evaluated and only pays off at roughly
 // 100k vectors.
