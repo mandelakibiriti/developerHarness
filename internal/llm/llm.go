@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 )
@@ -27,6 +28,11 @@ type Provider struct {
 	Label   string   `json:"label"`
 	BaseURL string   `json:"base_url"`
 	Models  []string `json:"models"`
+	// EmbedModel is the provider's embedding model for code-graph search
+	// (POST {base}/embeddings); "" when the provider has no embeddings API.
+	EmbedModel string `json:"embed_model,omitempty"`
+	// EmbedInputType marks APIs (NVIDIA NIM) that need input_type query|passage.
+	EmbedInputType bool `json:"-"`
 }
 
 // Providers is the catalog. Base URLs and model names are defaults; both are
@@ -35,13 +41,35 @@ var Providers = []Provider{
 	{ID: "claude", Label: "Claude (Anthropic)", BaseURL: "https://api.anthropic.com/v1",
 		Models: []string{"claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-fable-5-2"}},
 	{ID: "nvidia", Label: "NVIDIA NIM", BaseURL: "https://integrate.api.nvidia.com/v1",
-		Models: []string{"deepseek-ai/deepseek-r1", "meta/llama-3.3-70b-instruct", "nvidia/llama-3.1-nemotron-70b-instruct"}},
+		Models:     []string{"deepseek-ai/deepseek-r1", "meta/llama-3.3-70b-instruct", "nvidia/llama-3.1-nemotron-70b-instruct"},
+		EmbedModel: "nvidia/nemotron-3.5-embed-1b", EmbedInputType: true},
 	{ID: "deepseek", Label: "DeepSeek", BaseURL: "https://api.deepseek.com/v1",
 		Models: []string{"deepseek-chat", "deepseek-reasoner"}},
 	{ID: "gemini", Label: "Google Gemini", BaseURL: "https://generativelanguage.googleapis.com/v1beta/openai",
-		Models: []string{"gemini-2.5-flash", "gemini-2.5-pro"}},
+		Models:     []string{"gemini-2.5-flash", "gemini-2.5-pro"},
+		EmbedModel: "gemini-embedding-001"},
 	{ID: "opencode", Label: "OpenCode", BaseURL: "https://opencode.ai/v1",
 		Models: []string{"gpt-4o", "claude-sonnet-4-5"}},
+}
+
+// ReadSaved loads .harness/llm.json: the active config and one API key per
+// provider. A missing file is an empty config. A file from before per-provider
+// keys has only api_key; it becomes the active provider's key.
+func ReadSaved(path string) (Config, map[string]string) {
+	var f struct {
+		Config
+		Keys map[string]string `json:"keys,omitempty"`
+	}
+	if b, err := os.ReadFile(path); err == nil {
+		_ = json.Unmarshal(b, &f)
+	}
+	if f.Keys == nil {
+		f.Keys = map[string]string{}
+	}
+	if f.APIKey != "" && f.Keys[f.Provider] == "" {
+		f.Keys[f.Provider] = f.APIKey
+	}
+	return f.Config, f.Keys
 }
 
 // Lookup returns a provider by id.

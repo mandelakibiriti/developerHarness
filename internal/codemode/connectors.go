@@ -20,6 +20,8 @@ import (
 	"github.com/devex/harness/internal/config"
 	"github.com/devex/harness/internal/discovery"
 	"github.com/devex/harness/internal/events"
+	"github.com/devex/harness/internal/graph"
+	"github.com/devex/harness/internal/llm"
 	"github.com/devex/harness/internal/practice"
 	"github.com/devex/harness/internal/scope"
 )
@@ -36,6 +38,8 @@ const (
 	defaultRecent = 20
 	maxRecent     = 200
 	httpTimeout   = 5 * time.Second
+	defaultHits   = 8
+	maxHits       = 30
 )
 
 var problemID = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
@@ -79,6 +83,28 @@ func HarnessConnectors(env Env) []Connector {
 			Params:      []Param{{Name: "q", Type: "string", Doc: "search text"}},
 			Returns:     "unknown",
 			Fn:          env.trailSearch,
+		},
+		{
+			Namespace: "graph", Name: "search",
+			Description: "Find code by meaning or name in the codebase knowledge graph (graphify-out/graph.json): functions, types, files, doc sections. Returns file:line so you read only that span, not whole files.",
+			Params: []Param{
+				{Name: "q", Type: "string", Doc: "question or identifiers, e.g. \"where are budget alerts raised\""},
+				{Name: "k", Type: "number", Optional: true, Doc: fmt.Sprintf("results, default %d, max %d", defaultHits, maxHits)},
+				{Name: "mode", Type: `"hybrid" | "semantic" | "lexical"`, Optional: true, Doc: "default: hybrid when embeddings work (local Ollama if configured, else the agent's LLM provider), otherwise lexical with a note; lexical is best for exact identifiers"},
+			},
+			Returns: "{ mode: string; embedder?: string; note?: string; hits: { id: string; label: string; symbol?: string; file?: string; line?: number; doc?: string; community: number; score: number }[] }",
+			Fn:      env.graphSearch,
+		},
+		{
+			Namespace: "graph", Name: "neighbors",
+			Description: "Nodes linked to a graph node (callers, callees, containers, references), breadth-first. dir \"out\" means id -> node.",
+			Params: []Param{
+				{Name: "id", Type: "string", Doc: "node id from graph.search"},
+				{Name: "depth", Type: "number", Optional: true, Doc: "hops, default 1, max 3"},
+				{Name: "limit", Type: "number", Optional: true, Doc: fmt.Sprintf("default %d, max %d", defaultHits*3, maxRecent)},
+			},
+			Returns: "{ id: string; label: string; symbol?: string; file?: string; line?: number; relation: string; dir: \"in\" | \"out\"; depth: number }[]",
+			Fn:      env.graphNeighbors,
 		},
 		{
 			Namespace: "practice", Name: "list",
@@ -195,6 +221,120 @@ func (env Env) trailSearch(ctx context.Context, args map[string]any) (any, error
 		return nil, fmt.Errorf("Agent Trail returned non-JSON: %w", err)
 	}
 	return out, nil
+}
+
+// Graph loads the code graph.
+func (env Env) Graph() (*graph.Graph, error) { return env.graph() }
+
+func (env Env) graph() (*graph.Graph, error) {
+	return graph.Load(filepath.Join(env.Root, "graphify-out", "graph.json"), env.Root)
+}
+
+// Embedder picks the embeddings for graph search, in order:
+//  1. harness.json "embeddings": a local (loopback) Ollama server, opt-in;
+//  2. the harness agent's active LLM provider (.harness/llm.json), when it
+//     has an embeddings API and a saved key, the same trust as chat;
+//  3. none (nil): graph search is keyword-only. Nothing local is required.
+func (env Env) Embedder() (graph.Embedder, error) {
+	if e := env.Cfg.Embeddings; e != nil {
+		return graph.NewOllama(e.URL, e.Model, e.QueryPrefix, e.DocPrefix)
+	}
+	cfg, keys := llm.ReadSaved(filepath.Join(env.Root, ".harness", "llm.json"))
+	p, ok := llm.Lookup(cfg.Provider)
+	if !ok || p.EmbedModel == "" || keys[p.ID] == "" {
+		return nil, nil
+	}
+	base := p.BaseURL
+	if cfg.BaseURL != "" {
+		base = cfg.BaseURL
+	}
+	return graph.NewAPI(base, keys[p.ID], p.EmbedModel, p.EmbedInputType)
+}
+
+type searchResult struct {
+	Mode     string      `json:"mode"`
+	Embedder string      `json:"embedder,omitempty"`
+	Note     string      `json:"note,omitempty"` // why the default fell back to keyword search
+	Hits     []graph.Hit `json:"hits"`
+}
+
+func nonNil(h []graph.Hit) []graph.Hit {
+	if h == nil {
+		return []graph.Hit{}
+	}
+	return h
+}
+
+// EmbedCache is where node vectors are cached between runs.
+func (env Env) EmbedCache() string {
+	return filepath.Join(env.Root, ".harness", "cache", "graph-embeddings")
+}
+
+func (env Env) graphSearch(ctx context.Context, args map[string]any) (any, error) {
+	q, _ := args["q"].(string)
+	if strings.TrimSpace(q) == "" {
+		return nil, errors.New("q is required")
+	}
+	k, err := intArg(args, "k", defaultHits, 1, maxHits)
+	if err != nil {
+		return nil, err
+	}
+	mode, _ := args["mode"].(string)
+	g, err := env.graph()
+	if err != nil {
+		return nil, err
+	}
+	emb, embErr := env.Embedder()
+	if mode != "" { // an explicit mode is honoured or fails loudly
+		if embErr != nil && mode != "lexical" {
+			return nil, embErr
+		}
+		hits, err := g.Find(ctx, q, k, mode, emb, env.EmbedCache())
+		if err != nil {
+			return nil, err
+		}
+		return searchResult{Mode: mode, Hits: nonNil(hits)}, nil
+	}
+	// Default: hybrid when embeddings work, else keyword search, saying why.
+	note := "no embeddings available (the active LLM provider has no embeddings API, or no key is saved); keyword search only"
+	if embErr != nil {
+		note = "embeddings misconfigured: " + embErr.Error() + "; keyword search only"
+	} else if emb != nil {
+		hits, err := g.Find(ctx, q, k, "hybrid", emb, env.EmbedCache())
+		if err == nil {
+			return searchResult{Mode: "hybrid", Embedder: emb.Name(), Hits: nonNil(hits)}, nil
+		}
+		note = "embeddings failed (" + err.Error() + "); keyword search only"
+	}
+	return searchResult{Mode: "lexical", Note: note, Hits: nonNil(g.Search(q, k))}, nil
+}
+
+func (env Env) graphNeighbors(_ context.Context, args map[string]any) (any, error) {
+	id, _ := args["id"].(string)
+	depth, err := intArg(args, "depth", 1, 1, 3)
+	if err != nil {
+		return nil, err
+	}
+	limit, err := intArg(args, "limit", defaultHits*3, 1, maxRecent)
+	if err != nil {
+		return nil, err
+	}
+	g, err := env.graph()
+	if err != nil {
+		return nil, err
+	}
+	return g.Neighbors(id, depth, limit)
+}
+
+func intArg(args map[string]any, name string, def, lo, hi int) (int, error) {
+	v, ok := args[name].(float64)
+	if !ok {
+		return def, nil
+	}
+	if n := int(v); float64(n) == v && n >= lo && n <= hi {
+		return n, nil
+	}
+	return 0, fmt.Errorf("%s must be an integer %d..%d", name, lo, hi)
 }
 
 func (env Env) practiceList(context.Context, map[string]any) (any, error) {

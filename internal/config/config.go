@@ -33,6 +33,18 @@ type Config struct {
 	Learn Learn `json:"learn"`
 	// Improve tunes the improve loop's proposer (method, candidates, model).
 	Improve Improve `json:"improve"`
+	// Embeddings turns on semantic code-graph search; omit for keyword search only.
+	Embeddings *Embeddings `json:"embeddings,omitempty"`
+}
+
+// Embeddings is a local embedding server (Ollama's /api/embed); it must be
+// loopback, like every other tool. Prefixes are the model's task markers,
+// e.g. nomic-embed-text's "search_query: " / "search_document: ".
+type Embeddings struct {
+	URL         string `json:"url"`
+	Model       string `json:"model"`
+	QueryPrefix string `json:"query_prefix,omitempty"`
+	DocPrefix   string `json:"doc_prefix,omitempty"`
 }
 
 type Project struct {
